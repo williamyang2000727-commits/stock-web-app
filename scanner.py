@@ -482,19 +482,30 @@ def check_sell_signals(holdings, params, market_data, history_cache):
         trailing_stop = sp.get("trailing_stop", 0)
         reason = None
 
+        # Peak price (from cache history)
+        peak_price = buy_price
+        if ticker in cache_stocks:
+            cs_closes = cache_stocks[ticker].get("c", [])
+            if cs_closes:
+                peak_price = max(buy_price, max(cs_closes))
+            if cur_price > peak_price:
+                peak_price = cur_price
+
         # 1. Stop loss
         if ret <= stop_loss:
             reason = f"停損！報酬 {ret:+.1f}%（停損線 {stop_loss}%）"
 
         # 2. Take profit
-        if reason is None and ret >= take_profit:
+        if reason is None and sp.get("use_take_profit", 1) and ret >= take_profit:
             reason = f"停利！報酬 +{ret:.1f}%（目標 +{take_profit}%）"
 
-        # 3. Max hold days
-        if reason is None and days_held >= hold_days:
-            reason = f"持有已達 {days_held} 天（上限 {hold_days} 天），報酬 {ret:+.1f}%"
+        # 3. Trailing stop (移動停利)
+        if reason is None and trailing_stop > 0 and peak_price > buy_price:
+            dd = (cur_price / peak_price - 1) * 100
+            if dd <= -trailing_stop:
+                reason = f"移動停利！從高點 {peak_price:.1f} 回撤 {dd:.1f}%（門檻 -{trailing_stop}%），報酬 {ret:+.1f}%"
 
-        # 4. Below MA60 (if history available)
+        # 4. Below MA60
         if reason is None and int(sp.get("sell_below_ma", 0)) > 0 and ticker in cache_stocks:
             cs = cache_stocks[ticker]
             closes = cs["c"]
@@ -511,6 +522,14 @@ def check_sell_signals(holdings, params, market_data, history_cache):
             stag_min = sp.get("stagnation_min_ret", 5)
             if days_held >= stag_days and ret < stag_min:
                 reason = f"停滯出場！持有 {days_held} 天報酬僅 {ret:+.1f}%"
+
+        # 6. Profit lock (鎖利)
+        if reason is None and sp.get("use_profit_lock", 0):
+            lt = sp.get("lock_trigger", 30)
+            lf = sp.get("lock_floor", 10)
+            peak_gain = (peak_price / buy_price - 1) * 100
+            if peak_gain >= lt and ret < lf:
+                reason = f"鎖利出場！曾漲 +{peak_gain:.1f}% 但跌回 +{ret:.1f}%（鎖利線 +{lf}%）"
 
         # 6. Time decay (gradual profit requirement)
         if reason is None and sp.get("use_time_decay", 0):
