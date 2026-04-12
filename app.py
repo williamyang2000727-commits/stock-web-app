@@ -175,12 +175,12 @@ with tab1:
         st.warning("⚠️ 尚無掃描資料。掃描會在每個交易日 16:30 自動執行。")
 
 # ══════════════════════════════════════════════════════════════
-# TAB 2: HOLDINGS STATUS (Mac's tracked positions)
+# TAB 2: HOLDINGS STATUS (per-user from Gist portfolios.json)
 # ══════════════════════════════════════════════════════════════
 with tab2:
     st.markdown("### 💼 持倉狀態")
 
-    # Sell signals (prominent)
+    # Sell signals (from scan)
     sell_signals = scan.get("sell_signals", []) if scan else []
     if sell_signals:
         for sig in sell_signals:
@@ -190,31 +190,61 @@ with tab2:
             )
         st.markdown("---")
 
-    # Holdings
-    holdings_status = scan.get("holdings_status", []) if scan else []
-    if holdings_status:
-        st.markdown(f"#### 持倉 ({len(holdings_status)} / 2 檔)")
+    # Per-user holdings from portfolios.json
+    portfolios = read_gist_file("portfolios.json")
+    user_holdings = portfolios.get(username, {}).get("holdings", [])
 
-        for h in holdings_status:
-            ret = h.get("return_pct", 0)
+    if user_holdings:
+        st.markdown(f"#### 持倉（{len(user_holdings)} 檔）")
+
+        for h in user_holdings:
+            ticker = h.get("ticker", "")
+            name = h.get("name", "")
+            buy_price = h.get("buy_price", 0)
+            buy_date_str = h.get("buy_date", "")
+
+            # Days held
+            try:
+                days = (date.today() - date.fromisoformat(buy_date_str)).days
+            except (ValueError, TypeError):
+                days = 0
+
+            # Current price: try scan data first, fallback Yahoo
+            cur_price = None
+            scan_holdings = scan.get("holdings_status", []) if scan else []
+            for sh in scan_holdings:
+                if sh.get("ticker") == ticker and sh.get("current_price", 0) > 0:
+                    cur_price = sh["current_price"]
+                    break
+
+            if not cur_price:
+                try:
+                    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+                    r = requests.get(url, params={"range": "5d", "interval": "1d"},
+                                     headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+                    closes = r.json()["chart"]["result"][0]["indicators"]["quote"][0]["close"]
+                    for c in reversed(closes):
+                        if c is not None:
+                            cur_price = round(c, 2)
+                            break
+                except Exception:
+                    pass
+
+            if cur_price and buy_price > 0:
+                ret = (cur_price / buy_price - 1) * 100
+            else:
+                ret = 0
+                cur_price = 0
+
             icon = "🟢" if ret > 0 else "🔴" if ret < 0 else "⚪"
 
             c1, c2, c3, c4 = st.columns([3, 2, 2, 2])
-            c1.markdown(f"#### {icon} {h.get('name', '')} ({h.get('ticker', '')})")
-            c2.metric("買入價", f"${h.get('buy_price', 0):.2f}")
-            c3.metric("現價", f"${h.get('current_price', 0):.2f}")
+            c1.markdown(f"#### {icon} {name} ({ticker})")
+            c2.metric("買入價", f"${buy_price:.2f}")
+            c3.metric("現價", f"${cur_price:.2f}" if cur_price else "—")
             c4.metric("報酬", f"{ret:+.1f}%")
 
-            st.caption(
-                f"📅 {h.get('buy_date', '')} | "
-                f"持有 {h.get('days_held', 0)} 天 | "
-                f"停損 {h.get('stop_loss', -20)}% | "
-                f"停利 +{h.get('take_profit', 80)}% | "
-                f"最長 {h.get('hold_days', 30)} 天"
-            )
+            st.caption(f"📅 {buy_date_str} | 持有 {days} 天")
             st.markdown("---")
     else:
-        if scan and scan.get("date"):
-            st.info("目前無持倉")
-        else:
-            st.info("等待掃描資料...")
+        st.info("目前無持倉")
