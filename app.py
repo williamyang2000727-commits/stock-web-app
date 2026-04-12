@@ -21,6 +21,7 @@ st.set_page_config(
 # ── Secrets ──────────────────────────────────────────────────
 GITHUB_TOKEN = st.secrets["github_token"]
 DATA_GIST_ID = st.secrets["data_gist_id"]
+HISTORY_GIST_ID = st.secrets.get("history_gist_id", DATA_GIST_ID)
 
 
 # ── Gist I/O ────────────────────────────────────────────────
@@ -160,8 +161,23 @@ try:
 except Exception:
     market_data, trading_date = {}, ""
 
-# ── Self-updating History Cache ──
-history_cache = read_gist_file("history_cache.json")
+# ── History Cache (separate Gist for large file) ──
+@st.cache_data(ttl=300)
+def _read_history_gist():
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    try:
+        r = requests.get(f"https://api.github.com/gists/{HISTORY_GIST_ID}", headers=headers, timeout=15)
+        if r.status_code == 200:
+            fdata = list(r.json().get("files", {}).values())[0]
+            if fdata.get("truncated"):
+                raw = requests.get(fdata["raw_url"], headers=headers, timeout=60)
+                return json.loads(raw.text)
+            return json.loads(fdata.get("content", "{}"))
+    except Exception:
+        pass
+    return {}
+
+history_cache = _read_history_gist()
 cache_date = history_cache.get("updated", "") if history_cache else ""
 
 if history_cache and cache_date and market_data and trading_date > cache_date:
@@ -174,7 +190,12 @@ if history_cache and cache_date and market_data and trading_date > cache_date:
             hist["l"] = hist["l"][-59:] + [info.get("low", info["close"])]
             hist["v"] = hist["v"][-59:] + [info["vol"]]
     history_cache["updated"] = trading_date
-    write_gist_file("history_cache.json", history_cache)
+    try:
+        headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+        payload = {"files": {"history_cache.json": {"content": json.dumps(history_cache, ensure_ascii=False)}}}
+        requests.patch(f"https://api.github.com/gists/{HISTORY_GIST_ID}", headers=headers, json=payload, timeout=60)
+    except Exception:
+        pass
 
 # ── Live Scan (每次都跑，確保最新) ──
 scan = None
