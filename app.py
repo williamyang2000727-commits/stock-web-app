@@ -204,12 +204,78 @@ if history_cache and cache_date and market_data and trading_date > cache_date:
     except Exception:
         pass
 
-# ── Indicator States (pre-computed from full history, 598 KB) ──
+# ── Indicator States ──
 indicator_states = read_gist_file("indicator_state.json")
+state_date = indicator_states.get("updated", "") if indicator_states else ""
 
-# ── Live Scan (uses running states = exact match with Mac) ──
+# ── Update states if new trading day (web self-maintains, zero Mac) ──
+if indicator_states and market_data and trading_date and trading_date > state_date:
+    import numpy as np
+    _states = indicator_states.get("states", {})
+    _cache = history_cache.get("stocks", {}) if history_cache else {}
+    _updated = False
+    for tk, st in _states.items():
+        if tk not in market_data or tk not in _cache:
+            continue
+        info = market_data[tk]
+        cs = _cache[tk]
+        if not cs.get("c"):
+            continue
+        prev_c = cs["c"][-1]
+        new_c = info["close"]
+        ch = new_c - prev_c
+        # RSI
+        st["rsi_ag"] = round((st["rsi_ag"] * 13 + max(ch, 0)) / 14, 6)
+        st["rsi_al"] = round((st["rsi_al"] * 13 + max(-ch, 0)) / 14, 6)
+        # MACD
+        st["ema12"] = round(st["ema12"] * (1 - 2/13) + new_c * 2/13, 4)
+        st["ema26"] = round(st["ema26"] * (1 - 2/27) + new_c * 2/27, 4)
+        new_ml = st["ema12"] - st["ema26"]
+        st["mh_prev"] = st["mh"]
+        st["macd_sig"] = round(st["macd_sig"] * (1 - 2/10) + new_ml * 2/10, 4)
+        st["mh"] = round(new_ml - st["macd_sig"], 4)
+        # ATR
+        new_tr = max(info.get("high", new_c) - info.get("low", new_c),
+                     abs(info.get("high", new_c) - prev_c),
+                     abs(info.get("low", new_c) - prev_c))
+        st["atr14"] = round((st["atr14"] * 13 + new_tr) / 14, 4)
+        # ADX
+        prev_h = cs["h"][-1] if cs.get("h") else new_c
+        prev_l = cs["l"][-1] if cs.get("l") else new_c
+        up = info.get("high", new_c) - prev_h
+        dn = prev_l - info.get("low", new_c)
+        pdm_v = up if up > dn and up > 0 else 0
+        mdm_v = dn if dn > up and dn > 0 else 0
+        st["adx_a14"] = round((st["adx_a14"] * 13 + new_tr) / 14, 4)
+        st["adx_sp"] = round((st["adx_sp"] * 13 + pdm_v) / 14, 4)
+        st["adx_sm"] = round((st["adx_sm"] * 13 + mdm_v) / 14, 4)
+        pdi = st["adx_sp"] / st["adx_a14"] * 100 if st["adx_a14"] > 0 else 0
+        mdi = st["adx_sm"] / st["adx_a14"] * 100 if st["adx_a14"] > 0 else 0
+        dx = abs(pdi - mdi) / (pdi + mdi) * 100 if pdi + mdi > 0 else 0
+        st["adx_val"] = round((st["adx_val"] * 13 + dx) / 14, 4)
+        # KD
+        lo_arr = cs["l"][-9:] + [info.get("low", new_c)]
+        hi_arr = cs["h"][-9:] + [info.get("high", new_c)]
+        lo9 = min(lo_arr); hi9 = max(hi_arr)
+        rsv = (new_c - lo9) / (hi9 - lo9) * 100 if hi9 > lo9 else 50
+        st["kd_k_prev"] = st["kd_k"]
+        st["kd_d_prev"] = st["kd_d"]
+        st["kd_k"] = round(st["kd_k"] * 2/3 + rsv / 3, 4)
+        st["kd_d"] = round(st["kd_d"] * 2/3 + st["kd_k"] / 3, 4)
+        _updated = True
+
+    if _updated:
+        indicator_states["updated"] = trading_date
+        try:
+            _h = {"Authorization": f"token {GITHUB_TOKEN}"}
+            requests.patch(f"https://api.github.com/gists/{DATA_GIST_ID}", headers=_h,
+                json={"files": {"indicator_state.json": {"content": json.dumps(indicator_states, ensure_ascii=False)}}}, timeout=30)
+        except Exception:
+            pass
+
+# ── Live Scan (every load, uses states = exact results) ──
 scan = None
-if strategy_params and history_cache and history_cache.get("stocks"):
+if strategy_params and history_cache and history_cache.get("stocks") and indicator_states:
     try:
         from scanner import run_scan
         scan = run_scan(dict(strategy_params), set(held_tickers), history_cache, indicator_states)
