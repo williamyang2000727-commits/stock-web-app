@@ -204,15 +204,8 @@ if history_cache and cache_date and market_data and trading_date > cache_date:
     except Exception:
         pass
 
-# ── Live Scan (每次都跑，確保最新) ──
-scan = None
-try:
-    from scanner import run_scan
-    scan = run_scan(dict(strategy_params), set(held_tickers), history_cache)
-except Exception:
-    pass
-if not scan or not scan.get("buy_signals"):
-    scan = read_gist_file("scan_results.json")
+# ── Scan Results (Gist = 正確的完整掃描結果) ──
+scan = read_gist_file("scan_results.json")
 
 scan_date = scan.get("date", "") if scan else ""
 
