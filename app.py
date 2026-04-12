@@ -62,14 +62,15 @@ def read_gist_file(filename):
     return _read_gist(DATA_GIST_ID).get(filename, {})
 
 
-def write_gist_file(filename, data_dict):
+def write_gist_file(filename, data_dict, clear_cache=False):
     headers = {"Authorization": f"token {GITHUB_TOKEN}"}
     payload = {"files": {filename: {"content": json.dumps(data_dict, ensure_ascii=False, indent=2)}}}
     try:
         r = requests.patch(f"https://api.github.com/gists/{DATA_GIST_ID}",
                            headers=headers, json=payload, timeout=30)
         if r.status_code == 200:
-            st.cache_data.clear()
+            if clear_cache:
+                st.cache_data.clear()
             return True
     except Exception:
         pass
@@ -125,12 +126,12 @@ def next_trading_day(scan_date_str):
         return tw_today()
 
 
-def save_user_holdings(username, holdings):
+def save_user_holdings(username, holdings, clear_cache=True):
     portfolios = read_gist_file("portfolios.json")
     if not isinstance(portfolios, dict):
         portfolios = {}
     portfolios[username] = {"holdings": holdings, "updated": tw_now().isoformat()}
-    return write_gist_file("portfolios.json", portfolios)
+    return write_gist_file("portfolios.json", portfolios, clear_cache=clear_cache)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -298,8 +299,8 @@ if user_holdings and strategy_params and market_data:
     try:
         from scanner import check_sell_signals
         user_sell_signals = check_sell_signals(user_holdings, strategy_params, market_data, history_cache)
-        # Save updated peak_price back to Gist
-        save_user_holdings(username, user_holdings)
+        # Save updated peak_price (don't clear cache, just persist)
+        save_user_holdings(username, user_holdings, clear_cache=False)
     except Exception:
         pass
 

@@ -470,11 +470,17 @@ def check_sell_signals(holdings, params, market_data, history_cache):
 
         ret = (cur_price / buy_price - 1) * 100
 
-        # Days held
+        # Calendar days → approximate trading days (GPU uses trading days)
         try:
-            days_held = (datetime.now(TW_TZ).date() - _date.fromisoformat(buy_date_str)).days
+            calendar_days = (datetime.now(TW_TZ).date() - _date.fromisoformat(buy_date_str)).days
         except (ValueError, TypeError):
-            days_held = 0
+            calendar_days = 0
+        days_held = max(0, int(calendar_days * 5 / 7))  # approximate trading days
+
+        # Skip sell checks on buy day (matching GPU: dh < 1 → skip)
+        if days_held < 1:
+            h["peak_price"] = round(max(h.get("peak_price", buy_price), cur_price), 2)
+            continue
 
         stop_loss = sp.get("stop_loss", -20)
         take_profit = sp.get("take_profit", 80)
@@ -493,16 +499,16 @@ def check_sell_signals(holdings, params, market_data, history_cache):
         if reason is None and sp.get("use_take_profit", 1) and ret >= take_profit:
             reason = f"停利！報酬 +{ret:.1f}%（目標 +{take_profit}%）"
 
-        # 3. Trailing stop (移動停利)
-        if reason is None and trailing_stop > 0 and peak_price > buy_price:
+        # 3. Trailing stop (移動停利) — peak must be meaningfully above buy
+        if reason is None and trailing_stop > 0 and peak_price > buy_price * 1.01:
             dd = (cur_price / peak_price - 1) * 100
             if dd <= -trailing_stop:
                 reason = f"移動停利！從高點 {peak_price:.1f} 回撤 {dd:.1f}%（門檻 -{trailing_stop}%），報酬 {ret:+.1f}%"
 
-        # 4. Below MA60 — only if stock was ABOVE MA60 at buy time
+        # 4. Below MA60 — only if bought ABOVE MA60 (otherwise user chose to buy below)
         if reason is None and int(sp.get("sell_below_ma", 0)) > 0 and ticker in cache_stocks:
             cs = cache_stocks[ticker]
-            closes = cs["c"]
+            closes = list(cs["c"])
             if ticker in market_data:
                 closes = closes + [market_data[ticker]["close"]]
             if len(closes) > 60:
@@ -510,14 +516,14 @@ def check_sell_signals(holdings, params, market_data, history_cache):
                 if buy_price >= ma60 and cur_price < ma60:
                     reason = f"跌破 MA60！現價 {cur_price:.1f} < MA60 {ma60:.1f}，報酬 {ret:+.1f}%"
 
-        # 5. Stagnation exit
+        # 5. Stagnation exit — use trading days
         if reason is None and sp.get("use_stagnation_exit", 0):
             stag_days = int(sp.get("stagnation_days", 10))
             stag_min = sp.get("stagnation_min_ret", 5)
             if days_held >= stag_days and ret < stag_min:
-                reason = f"停滯出場！持有 {days_held} 天報酬僅 {ret:+.1f}%"
+                reason = f"停滯出場！持有 {days_held} 交易日報酬僅 {ret:+.1f}%"
 
-        # 6. Profit lock (鎖利)
+        # 6. Profit lock (鎖利) — peak must have actually reached trigger
         if reason is None and sp.get("use_profit_lock", 0):
             lt = sp.get("lock_trigger", 30)
             lf = sp.get("lock_floor", 10)
@@ -525,14 +531,18 @@ def check_sell_signals(holdings, params, market_data, history_cache):
             if peak_gain >= lt and ret < lf:
                 reason = f"鎖利出場！曾漲 +{peak_gain:.1f}% 但跌回 +{ret:.1f}%（鎖利線 +{lf}%）"
 
-        # 6. Time decay (gradual profit requirement)
+        # 7. Time decay (gradual profit requirement) — use trading days
         if reason is None and sp.get("use_time_decay", 0):
             rpd = sp.get("ret_per_day", 0.5)
             hd_half = int(hold_days) // 2
             if days_held >= hd_half:
                 min_req = (days_held - hd_half) * rpd
                 if ret < min_req:
-                    reason = f"漸進停利！持有 {days_held} 天報酬 {ret:+.1f}%，低於期望 +{min_req:.1f}%"
+                    reason = f"漸進停利！持有 {days_held} 交易日報酬 {ret:+.1f}%，低於期望 +{min_req:.1f}%"
+
+        # 8. Max hold days — use trading days
+        if reason is None and days_held >= hold_days:
+            reason = f"持有已達 {days_held} 交易日（上限 {hold_days}），報酬 {ret:+.1f}%"
 
         # Update peak_price in holding (for persistent tracking)
         h["peak_price"] = round(peak_price, 2)
