@@ -326,6 +326,7 @@ def run_scan(params, held_tickers=None, history_cache=None, indicator_states=Non
         return None
 
     cache_stocks = history_cache["stocks"]
+    states = indicator_states.get("states", {}) if indicator_states else {}
 
     # 1. Today's market data from official APIs
     market_data, trading_date = fetch_market_data()
@@ -408,7 +409,6 @@ def check_sell_signals(holdings, params, market_data, history_cache):
     signals = []
     sp = params
     cache_stocks = history_cache.get("stocks", {}) if history_cache else {}
-    states = indicator_states.get("states", {}) if indicator_states else {}
 
     for h in holdings:
         ticker = h.get("ticker", "")
