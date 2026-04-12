@@ -94,11 +94,7 @@ def get_market_data():
     return fetch_market_data()
 
 
-# ── Live Scan ────────────────────────────────────────────────
-@st.cache_data(ttl=1800, show_spinner="正在掃描...")
-def do_live_scan(_params, _held, _history):
-    from scanner import run_scan
-    return run_scan(dict(_params), set(_held), _history)
+# ── Live Scan (每次登入都跑，session 內快取) ─────────────────
 
 
 # ── Helper ───────────────────────────────────────────────────
@@ -136,6 +132,7 @@ with st.sidebar:
     st.markdown("---")
     if st.button("🔄 重新掃描", use_container_width=True):
         st.cache_data.clear()
+        st.session_state.pop("scan_result", None)
         st.rerun()
     if st.button("🚪 登出", use_container_width=True):
         for key in list(st.session_state.keys()):
@@ -172,13 +169,18 @@ if history_cache and cache_date and market_data and trading_date > cache_date:
     history_cache["updated"] = trading_date
     write_gist_file("history_cache.json", history_cache)
 
-# ── Live Scan (web does its own full scan, no Mac needed) ──
-scan = None
-if strategy_params and history_cache and history_cache.get("stocks"):
-    try:
-        scan = do_live_scan(dict(strategy_params), held_tickers, history_cache)
-    except Exception:
-        pass
+# ── Live Scan (每次登入掃描，session 內快取) ──
+if "scan_result" not in st.session_state:
+    with st.spinner("🔍 正在掃描 1929 檔股票..."):
+        try:
+            from scanner import run_scan
+            _scan = run_scan(dict(strategy_params), set(held_tickers), history_cache)
+            if _scan and _scan.get("buy_signals"):
+                st.session_state.scan_result = _scan
+        except Exception:
+            pass
+
+scan = st.session_state.get("scan_result")
 if not scan or not scan.get("buy_signals"):
     scan = read_gist_file("scan_results.json")
 
