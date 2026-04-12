@@ -151,7 +151,10 @@ user_holdings = portfolios.get(username, {}).get("holdings", []) if isinstance(p
 held_tickers = tuple(h.get("ticker", "") for h in user_holdings)
 
 # ── Market Data (TWSE/TPEx, no Mac) ──
-market_data, trading_date = get_market_data()
+try:
+    market_data, trading_date = get_market_data()
+except Exception:
+    market_data, trading_date = {}, ""
 
 # ── Self-updating History Cache ──
 history_cache = read_gist_file("history_cache.json")
@@ -170,13 +173,16 @@ if history_cache and cache_date and market_data and trading_date > cache_date:
     write_gist_file("history_cache.json", history_cache)
 
 # ── Live Scan ──
+mac_scan = read_gist_file("scan_results.json")
 scan = None
 if strategy_params and history_cache:
-    scan = do_live_scan(dict(strategy_params), held_tickers, history_cache)
+    try:
+        scan = do_live_scan(dict(strategy_params), held_tickers, history_cache)
+    except Exception:
+        pass
 
-# Fallback
-mac_scan = read_gist_file("scan_results.json")
-if not scan:
+# Fallback to Mac scan (Gist)
+if not scan or not scan.get("buy_signals"):
     scan = mac_scan
 
 scan_date = scan.get("date", "") if scan else ""
@@ -286,10 +292,15 @@ with tab2:
             except (ValueError, TypeError):
                 days = 0
 
-            # Current price: TWSE/TPEx → Yahoo fallback
+            # Current price: TWSE/TPEx → Gist scan → Yahoo
             cur_price = None
             if market_data and ticker in market_data:
                 cur_price = market_data[ticker]["close"]
+            if not cur_price:
+                for sh in (mac_scan.get("holdings_status", []) if mac_scan else []):
+                    if sh.get("ticker") == ticker and sh.get("current_price", 0) > 0:
+                        cur_price = sh["current_price"]
+                        break
             if not cur_price:
                 try:
                     url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
