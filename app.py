@@ -286,10 +286,22 @@ with tab2:
             except (ValueError, TypeError):
                 days = 0
 
-            # Current price from TWSE/TPEx market data
+            # Current price: TWSE/TPEx → Yahoo fallback
             cur_price = None
             if market_data and ticker in market_data:
                 cur_price = market_data[ticker]["close"]
+            if not cur_price:
+                try:
+                    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
+                    r = requests.get(url, params={"range": "5d", "interval": "1d"},
+                                     headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+                    closes = r.json()["chart"]["result"][0]["indicators"]["quote"][0]["close"]
+                    for cv in reversed(closes):
+                        if cv is not None:
+                            cur_price = round(cv, 2)
+                            break
+                except Exception:
+                    pass
 
             if cur_price and buy_price > 0:
                 ret = (cur_price / buy_price - 1) * 100
@@ -332,28 +344,31 @@ with tab2:
 
     # ── Buy Form ──
     st.markdown("---")
-    with st.expander("➕ 買入新股票", expanded=not bool(user_holdings)):
-        with st.form("buy_form", clear_on_submit=True):
-            bc1, bc2 = st.columns(2)
-            with bc1:
-                new_ticker = st.text_input("股票代碼", placeholder="例：2330.TW 或 3264.TWO")
-                new_name = st.text_input("股票名稱", placeholder="例：台積電")
-            with bc2:
-                new_price = st.number_input("買入價格", min_value=0.01, step=0.01, format="%.2f")
-                new_date = st.date_input("買入日期", value=date.today())
+    if len(user_holdings) >= max_positions:
+        st.warning(f"已滿倉（{len(user_holdings)}/{max_positions} 檔），賣出後才能買入")
+    else:
+        with st.expander("➕ 買入新股票", expanded=not bool(user_holdings)):
+            with st.form("buy_form", clear_on_submit=True):
+                bc1, bc2 = st.columns(2)
+                with bc1:
+                    new_ticker = st.text_input("股票代碼", placeholder="例：2330.TW 或 3264.TWO")
+                    new_name = st.text_input("股票名稱", placeholder="例：台積電")
+                with bc2:
+                    new_price = st.number_input("買入價格", min_value=0.01, step=0.01, format="%.2f")
+                    new_date = st.date_input("買入日期", value=date.today())
 
-            if st.form_submit_button("確認買入", use_container_width=True):
-                if new_ticker and new_name and new_price > 0:
-                    updated = list(user_holdings) + [{
-                        "ticker": new_ticker.strip(),
-                        "name": new_name.strip(),
-                        "buy_price": round(new_price, 2),
-                        "buy_date": str(new_date),
-                    }]
-                    if save_user_holdings(username, updated):
-                        st.success(f"已買入 {new_name}（{new_ticker}）@ ${new_price:.2f}")
-                        st.rerun()
+                if st.form_submit_button("確認買入", use_container_width=True):
+                    if new_ticker and new_name and new_price > 0:
+                        updated = list(user_holdings) + [{
+                            "ticker": new_ticker.strip(),
+                            "name": new_name.strip(),
+                            "buy_price": round(new_price, 2),
+                            "buy_date": str(new_date),
+                        }]
+                        if save_user_holdings(username, updated):
+                            st.success(f"已買入 {new_name}（{new_ticker}）@ ${new_price:.2f}")
+                            st.rerun()
+                        else:
+                            st.error("儲存失敗")
                     else:
-                        st.error("儲存失敗")
-                else:
-                    st.error("請填寫完整資訊")
+                        st.error("請填寫完整資訊")
