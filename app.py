@@ -172,18 +172,8 @@ if history_cache and cache_date and market_data and trading_date > cache_date:
     history_cache["updated"] = trading_date
     write_gist_file("history_cache.json", history_cache)
 
-# ── Live Scan ──
-mac_scan = read_gist_file("scan_results.json")
-scan = None
-if strategy_params and history_cache:
-    try:
-        scan = do_live_scan(dict(strategy_params), held_tickers, history_cache)
-    except Exception:
-        pass
-
-# Fallback to Mac scan (Gist)
-if not scan or not scan.get("buy_signals"):
-    scan = mac_scan
+# ── Scan Data (from Gist, Mac 16:30 full scan with 1964 stocks) ──
+scan = read_gist_file("scan_results.json")
 
 scan_date = scan.get("date", "") if scan else ""
 
@@ -195,7 +185,7 @@ if len(user_holdings) < max_positions and scan:
 
 user_sell_signals = []
 user_tickers_set = {h.get("ticker") for h in user_holdings}
-for sig in (mac_scan.get("sell_signals", []) if mac_scan else []):
+for sig in (scan.get("sell_signals", []) if scan else []):
     if sig.get("ticker") in user_tickers_set:
         user_sell_signals.append(sig)
 
@@ -297,7 +287,7 @@ with tab2:
             if market_data and ticker in market_data:
                 cur_price = market_data[ticker]["close"]
             if not cur_price:
-                for sh in (mac_scan.get("holdings_status", []) if mac_scan else []):
+                for sh in (scan.get("holdings_status", []) if scan else []):
                     if sh.get("ticker") == ticker and sh.get("current_price", 0) > 0:
                         cur_price = sh["current_price"]
                         break
