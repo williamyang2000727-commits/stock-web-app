@@ -353,10 +353,12 @@ def run_scan(params, held_tickers=None, history_cache=None, indicator_states=Non
             hist_l = cs["l"]
             hist_v = cs["v"]
 
-            # Only append today if newer than cache (avoid duplicate)
+            # Merge today's data if newer than cache
             cache_updated = history_cache.get("updated", "")
             today_info = market_data[ticker]
-            if trading_date > cache_updated:
+            new_day = trading_date > cache_updated
+
+            if new_day:
                 c = np.array(hist_c + [today_info["close"]], dtype=np.float64)
                 h = np.array(hist_h + [today_info["high"]], dtype=np.float64)
                 lo = np.array(hist_l + [today_info["low"]], dtype=np.float64)
@@ -370,9 +372,49 @@ def run_scan(params, held_tickers=None, history_cache=None, indicator_states=Non
             if len(c) < 20:
                 continue
 
-            # Use running state if available (exact match with Mac)
             if ticker in states:
-                ind = compute_indicators_with_state(c, h, lo, v, states[ticker])
+                st = dict(states[ticker])  # copy
+                # Update running state with new day's data
+                if new_day and len(hist_c) > 0:
+                    prev_c = hist_c[-1]
+                    new_c = today_info["close"]
+                    change = new_c - prev_c
+                    # RSI
+                    st["rsi_ag"] = (st["rsi_ag"] * 13 + max(change, 0)) / 14
+                    st["rsi_al"] = (st["rsi_al"] * 13 + max(-change, 0)) / 14
+                    # MACD
+                    st["ema12"] = st["ema12"] * (1 - 2/13) + new_c * 2/13
+                    st["ema26"] = st["ema26"] * (1 - 2/27) + new_c * 2/27
+                    new_ml = st["ema12"] - st["ema26"]
+                    st["mh_prev"] = st["mh"]
+                    st["macd_sig"] = st["macd_sig"] * (1 - 2/10) + new_ml * 2/10
+                    st["mh"] = new_ml - st["macd_sig"]
+                    # ATR
+                    new_tr = max(today_info["high"] - today_info["low"],
+                                abs(today_info["high"] - prev_c),
+                                abs(today_info["low"] - prev_c))
+                    st["atr14"] = (st["atr14"] * 13 + new_tr) / 14
+                    # ADX
+                    up = today_info["high"] - h[-2] if len(h) > 1 else 0
+                    dn = lo[-2] - today_info["low"] if len(lo) > 1 else 0
+                    pdm_v = up if up > dn and up > 0 else 0
+                    mdm_v = dn if dn > up and dn > 0 else 0
+                    st["adx_a14"] = (st["adx_a14"] * 13 + new_tr) / 14
+                    st["adx_sp"] = (st["adx_sp"] * 13 + pdm_v) / 14
+                    st["adx_sm"] = (st["adx_sm"] * 13 + mdm_v) / 14
+                    pdi = st["adx_sp"] / st["adx_a14"] * 100 if st["adx_a14"] > 0 else 0
+                    mdi = st["adx_sm"] / st["adx_a14"] * 100 if st["adx_a14"] > 0 else 0
+                    dx = abs(pdi - mdi) / (pdi + mdi) * 100 if pdi + mdi > 0 else 0
+                    st["adx_val"] = (st["adx_val"] * 13 + dx) / 14
+                    # KD
+                    lo9 = float(np.min(lo[-10:])) if len(lo) >= 10 else float(np.min(lo))
+                    hi9 = float(np.max(h[-10:])) if len(h) >= 10 else float(np.max(h))
+                    rsv = (new_c - lo9) / (hi9 - lo9) * 100 if hi9 > lo9 else 50
+                    st["kd_k_prev"] = st["kd_k"]
+                    st["kd_d_prev"] = st["kd_d"]
+                    st["kd_k"] = st["kd_k"] * 2/3 + rsv / 3
+                    st["kd_d"] = st["kd_d"] * 2/3 + st["kd_k"] / 3
+                ind = compute_indicators_with_state(c, h, lo, v, st)
             else:
                 ind = compute_indicators(c, h, lo, v)
             if ind is None:
