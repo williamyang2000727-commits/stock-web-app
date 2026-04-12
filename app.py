@@ -7,7 +7,7 @@ import streamlit as st
 import requests
 import json
 import pandas as pd
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import hashlib
 
 # ── Page Config ──────────────────────────────────────────────
@@ -116,8 +116,79 @@ with st.sidebar:
 # ── Load scan data ───────────────────────────────────────────
 scan = read_gist_file("scan_results.json")
 
+
+# ── Signal computation (before tabs, for badge count) ────────
+def next_trading_day(scan_date_str):
+    """掃描日的下一個交易日（跳過六日）"""
+    try:
+        d = date.fromisoformat(scan_date_str)
+        nd = d + timedelta(days=1)
+        while nd.weekday() >= 5:
+            nd += timedelta(days=1)
+        return nd
+    except (ValueError, TypeError):
+        return date.today()
+
+
+portfolios = read_gist_file("portfolios.json")
+user_holdings = portfolios.get(username, {}).get("holdings", [])
+scan_date = scan.get("date", "") if scan else ""
+max_positions = 2
+
+# Buy signals: only if user not full
+user_buy_signals = []
+if len(user_holdings) < max_positions and scan:
+    user_buy_signals = scan.get("buy_signals", [])[:1]
+
+# Sell signals: match user holdings
+user_sell_signals = []
+user_tickers = {h.get("ticker") for h in user_holdings}
+for sig in (scan.get("sell_signals", []) if scan else []):
+    if sig.get("ticker") in user_tickers:
+        user_sell_signals.append(sig)
+
+signal_count = len(user_buy_signals) + len(user_sell_signals)
+signal_label = f"🔴 訊號 ({signal_count})" if signal_count > 0 else "訊號"
+
 # ── Tabs ─────────────────────────────────────────────────────
-tab1, tab2 = st.tabs(["📊 買入排行", "💼 持倉狀態"])
+tab0, tab1, tab2 = st.tabs([signal_label, "📊 買入排行", "💼 持倉狀態"])
+
+# ══════════════════════════════════════════════════════════════
+# TAB 0: SIGNALS
+# ══════════════════════════════════════════════════════════════
+with tab0:
+    if signal_count > 0:
+        nd = next_trading_day(scan_date)
+        nd_str = nd.strftime("%m/%d")
+
+        for sig in user_buy_signals:
+            st.markdown(
+                f"### 🎯 買入訊號\n\n"
+                f"**請於 {nd_str}（{['一','二','三','四','五','六','日'][nd.weekday()]}）"
+                f"13:25 前買入**\n\n"
+                f"---\n\n"
+                f"### {sig.get('name', '')}（{sig.get('ticker', '')}）\n\n"
+                f"收盤價 **{sig.get('close', 0)}** 元 ｜ 評分 **{int(sig.get('score', 0))}** 分\n\n"
+                f"📌 收盤前下單，跟 GPU 回測一致"
+            )
+
+        for sig in user_sell_signals:
+            st.markdown(
+                f"### 📤 賣出訊號\n\n"
+                f"**請於 {nd_str}（{['一','二','三','四','五','六','日'][nd.weekday()]}）"
+                f"9:00 開盤賣出**\n\n"
+                f"---\n\n"
+                f"### {sig.get('name', '')}（{sig.get('ticker', '')}）\n\n"
+                f"報酬 **{sig.get('return', 0):+.1f}%** ｜ {sig.get('reason', '')}"
+            )
+    else:
+        if scan and scan.get("date"):
+            if len(user_holdings) >= max_positions:
+                st.info(f"目前滿倉（{len(user_holdings)}/{max_positions} 檔），無買入訊號")
+            else:
+                st.info("目前無任何訊號")
+        else:
+            st.warning("尚無掃描資料")
 
 # ══════════════════════════════════════════════════════════════
 # TAB 1: BUY RANKINGS
