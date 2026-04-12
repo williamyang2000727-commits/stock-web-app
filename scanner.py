@@ -499,7 +499,7 @@ def check_sell_signals(holdings, params, market_data, history_cache):
             if dd <= -trailing_stop:
                 reason = f"移動停利！從高點 {peak_price:.1f} 回撤 {dd:.1f}%（門檻 -{trailing_stop}%），報酬 {ret:+.1f}%"
 
-        # 4. Below MA60
+        # 4. Below MA60 — only if stock was ABOVE MA60 at buy time
         if reason is None and int(sp.get("sell_below_ma", 0)) > 0 and ticker in cache_stocks:
             cs = cache_stocks[ticker]
             closes = cs["c"]
@@ -507,7 +507,7 @@ def check_sell_signals(holdings, params, market_data, history_cache):
                 closes = closes + [market_data[ticker]["close"]]
             if len(closes) > 60:
                 ma60 = float(np.mean(closes[-61:-1]))
-                if cur_price < ma60:
+                if buy_price >= ma60 and cur_price < ma60:
                     reason = f"跌破 MA60！現價 {cur_price:.1f} < MA60 {ma60:.1f}，報酬 {ret:+.1f}%"
 
         # 5. Stagnation exit
