@@ -53,28 +53,6 @@ def read_gist_file(filename):
     return data.get(filename, {})
 
 
-def write_gist_file(filename, data):
-    """Write a single file to the data Gist."""
-    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
-    payload = {
-        "files": {
-            filename: {
-                "content": json.dumps(data, ensure_ascii=False, indent=2)
-            }
-        }
-    }
-    try:
-        r = requests.patch(
-            f"https://api.github.com/gists/{DATA_GIST_ID}",
-            headers=headers,
-            json=payload,
-            timeout=15,
-        )
-        return r.status_code == 200
-    except Exception:
-        return False
-
-
 # ── Authentication ───────────────────────────────────────────
 def authenticate():
     """SHA256-based login. Users configured in .streamlit/secrets.toml."""
@@ -104,45 +82,6 @@ def authenticate():
                         st.error("密碼錯誤")
                 else:
                     st.error("帳號不存在")
-    return False
-
-
-# ── Stock Price (for personal portfolio) ─────────────────────
-@st.cache_data(ttl=600)
-def get_stock_price(ticker):
-    """Fetch latest closing price from Yahoo Finance."""
-    try:
-        url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
-        r = requests.get(
-            url,
-            params={"range": "5d", "interval": "1d"},
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=10,
-        )
-        closes = r.json()["chart"]["result"][0]["indicators"]["quote"][0]["close"]
-        for c in reversed(closes):
-            if c is not None:
-                return round(c, 2)
-    except Exception:
-        pass
-    return None
-
-
-# ── Portfolio (per-user, stored in Gist) ─────────────────────
-def get_user_holdings(username):
-    portfolios = read_gist_file("portfolios.json")
-    return portfolios.get(username, {}).get("holdings", [])
-
-
-def save_user_portfolio(username, holdings):
-    portfolios = read_gist_file("portfolios.json")
-    portfolios[username] = {
-        "holdings": holdings,
-        "updated": datetime.now().isoformat(),
-    }
-    if write_gist_file("portfolios.json", portfolios):
-        st.cache_data.clear()
-        return True
     return False
 
 
@@ -178,7 +117,7 @@ with st.sidebar:
 scan = read_gist_file("scan_results.json")
 
 # ── Tabs ─────────────────────────────────────────────────────
-tab1, tab2, tab3 = st.tabs(["📊 買入排行", "💼 持倉狀態", "⚙️ 我的追蹤"])
+tab1, tab2 = st.tabs(["📊 買入排行", "💼 持倉狀態"])
 
 # ══════════════════════════════════════════════════════════════
 # TAB 1: BUY RANKINGS
@@ -214,21 +153,7 @@ with tab1:
                 })
 
             df = pd.DataFrame(rows)
-
-            # Highlight #1
-            st.dataframe(
-                df,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "分數": st.column_config.ProgressColumn(
-                        "分數",
-                        min_value=0,
-                        max_value=20,
-                        format="%d",
-                    ),
-                },
-            )
+            st.dataframe(df, use_container_width=True, hide_index=True)
 
             top = buy_signals[0]
             st.success(
@@ -249,7 +174,6 @@ with tab1:
             )
     else:
         st.warning("⚠️ 尚無掃描資料。掃描會在每個交易日 16:30 自動執行。")
-        st.info("首次使用？Mac 端 16:30 掃描後，這裡會自動顯示最新排行。")
 
 # ══════════════════════════════════════════════════════════════
 # TAB 2: HOLDINGS STATUS (Mac's tracked positions)
@@ -295,87 +219,3 @@ with tab2:
             st.info("目前無持倉")
         else:
             st.info("等待掃描資料...")
-
-# ══════════════════════════════════════════════════════════════
-# TAB 3: PERSONAL PORTFOLIO
-# ══════════════════════════════════════════════════════════════
-with tab3:
-    st.markdown("### ⚙️ 我的追蹤清單")
-    st.caption("個人追蹤用，不影響系統交易訊號")
-
-    holdings = get_user_holdings(username)
-
-    # ── Add new stock ──
-    with st.form("add_stock", clear_on_submit=True):
-        st.markdown("**新增追蹤**")
-        c1, c2 = st.columns(2)
-        with c1:
-            new_ticker = st.text_input(
-                "股票代碼", placeholder="例：2330.TW 或 3264.TWO"
-            )
-            new_name = st.text_input("股票名稱", placeholder="例：台積電")
-        with c2:
-            new_price = st.number_input(
-                "買入價格", min_value=0.01, step=0.01, format="%.2f"
-            )
-            new_date = st.date_input("買入日期", value=date.today())
-
-        if st.form_submit_button("✅ 新增追蹤", use_container_width=True):
-            if new_ticker and new_name and new_price > 0:
-                holdings.append({
-                    "ticker": new_ticker.strip(),
-                    "name": new_name.strip(),
-                    "buy_price": round(new_price, 2),
-                    "buy_date": str(new_date),
-                })
-                if save_user_portfolio(username, holdings):
-                    st.success(f"已新增 {new_name}")
-                    st.rerun()
-                else:
-                    st.error("儲存失敗，請稍後再試")
-            else:
-                st.error("請填寫完整資訊")
-
-    # ── Show tracked stocks ──
-    if holdings:
-        st.markdown("---")
-        st.markdown(f"**追蹤中 ({len(holdings)} 檔)**")
-
-        for i, h in enumerate(holdings):
-            ticker = h.get("ticker", "")
-            name = h.get("name", "")
-            buy_price = h.get("buy_price", 0)
-            buy_date_str = h.get("buy_date", "")
-
-            # Days held
-            try:
-                days = (date.today() - date.fromisoformat(buy_date_str)).days
-            except (ValueError, TypeError):
-                days = 0
-
-            # Current price
-            cur_price = get_stock_price(ticker)
-            if cur_price and buy_price > 0:
-                pnl = (cur_price / buy_price - 1) * 100
-                icon = "🟢" if pnl > 0 else "🔴" if pnl < 0 else "⚪"
-                pnl_str = f"{pnl:+.2f}%"
-            else:
-                icon = "⚪"
-                pnl_str = "N/A"
-                cur_price = 0
-
-            c1, c2, c3, c4, c5 = st.columns([3, 1.5, 1.5, 1.5, 1])
-            c1.markdown(f"**{icon} {name}** ({ticker})")
-            c2.write(f"成本 ${buy_price}")
-            c3.write(f"現價 ${cur_price}" if cur_price else "現價 --")
-            c4.write(f"報酬 {pnl_str}")
-            with c5:
-                if st.button("❌", key=f"del_{i}"):
-                    holdings.pop(i)
-                    save_user_portfolio(username, holdings)
-                    st.rerun()
-
-            st.caption(f"📅 {buy_date_str} | 持有 {days} 天")
-            st.markdown("---")
-    else:
-        st.info("尚未追蹤任何股票。使用上方表單新增。")
