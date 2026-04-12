@@ -319,8 +319,13 @@ with tab2:
 
             # Current price: TWSE/TPEx → Gist scan → Yahoo
             cur_price = None
-            if market_data and ticker in market_data:
-                cur_price = market_data[ticker]["close"]
+            if market_data:
+                if ticker in market_data:
+                    cur_price = market_data[ticker]["close"]
+                elif f"{ticker}.TW" in market_data:
+                    cur_price = market_data[f"{ticker}.TW"]["close"]
+                elif f"{ticker}.TWO" in market_data:
+                    cur_price = market_data[f"{ticker}.TWO"]["close"]
             if not cur_price:
                 for sh in (scan.get("holdings_status", []) if scan else []):
                     if sh.get("ticker") == ticker and sh.get("current_price", 0) > 0:
@@ -395,7 +400,13 @@ with tab2:
 
                 if st.form_submit_button("確認買入", use_container_width=True):
                     if new_ticker and new_name and new_price > 0:
-                        tk = new_ticker.strip()
+                        tk = new_ticker.strip().upper()
+                        # 自動補 .TW/.TWO
+                        if not tk.endswith(".TW") and not tk.endswith(".TWO"):
+                            if market_data and f"{tk}.TWO" in market_data:
+                                tk = f"{tk}.TWO"
+                            else:
+                                tk = f"{tk}.TW"
                         # 查現價
                         live_price = None
                         if market_data and tk in market_data:
