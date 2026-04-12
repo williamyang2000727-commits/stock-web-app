@@ -172,8 +172,15 @@ if history_cache and cache_date and market_data and trading_date > cache_date:
     history_cache["updated"] = trading_date
     write_gist_file("history_cache.json", history_cache)
 
-# ── Scan Data (from Gist, Mac 16:30 full scan with 1964 stocks) ──
-scan = read_gist_file("scan_results.json")
+# ── Live Scan (web does its own full scan, no Mac needed) ──
+scan = None
+if strategy_params and history_cache and history_cache.get("stocks"):
+    try:
+        scan = do_live_scan(dict(strategy_params), held_tickers, history_cache)
+    except Exception:
+        pass
+if not scan or not scan.get("buy_signals"):
+    scan = read_gist_file("scan_results.json")
 
 scan_date = scan.get("date", "") if scan else ""
 
@@ -183,11 +190,14 @@ user_buy_signals = []
 if len(user_holdings) < max_positions and scan:
     user_buy_signals = scan.get("buy_signals", [])[:1]
 
+# Sell signals: live tracking using strategy sell conditions
 user_sell_signals = []
-user_tickers_set = {h.get("ticker") for h in user_holdings}
-for sig in (scan.get("sell_signals", []) if scan else []):
-    if sig.get("ticker") in user_tickers_set:
-        user_sell_signals.append(sig)
+if user_holdings and strategy_params and market_data:
+    try:
+        from scanner import check_sell_signals
+        user_sell_signals = check_sell_signals(user_holdings, strategy_params, market_data, history_cache)
+    except Exception:
+        pass
 
 signal_count = len(user_buy_signals) + len(user_sell_signals)
 signal_label = f"🔴 訊號 ({signal_count})" if signal_count > 0 else "訊號"
@@ -360,14 +370,22 @@ with tab2:
 
                 if st.form_submit_button("確認買入", use_container_width=True):
                     if new_ticker and new_name and new_price > 0:
+                        tk = new_ticker.strip()
+                        # 查現價
+                        live_price = None
+                        if market_data and tk in market_data:
+                            live_price = market_data[tk]["close"]
                         updated = list(user_holdings) + [{
-                            "ticker": new_ticker.strip(),
+                            "ticker": tk,
                             "name": new_name.strip(),
                             "buy_price": round(new_price, 2),
                             "buy_date": str(new_date),
                         }]
                         if save_user_holdings(username, updated):
-                            st.success(f"已買入 {new_name}（{new_ticker}）@ ${new_price:.2f}")
+                            msg = f"已買入 {new_name}（{tk}）@ ${new_price:.2f}"
+                            if live_price:
+                                msg += f"｜現價 ${live_price:.2f}"
+                            st.success(msg)
                             st.rerun()
                         else:
                             st.error("儲存失敗")

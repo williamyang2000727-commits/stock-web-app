@@ -258,8 +258,8 @@ def run_scan(params, held_tickers=None, history_cache=None):
     if not market_data or len(market_data) < 50:
         return None
 
-    # 2. Top 50 by volume
-    top = sorted(market_data.keys(), key=lambda t: market_data[t]["vol"], reverse=True)[:50]
+    # 2. Top 100 by volume (matching Mac scan)
+    top = sorted(market_data.keys(), key=lambda t: market_data[t]["vol"], reverse=True)[:100]
 
     # 3. Score each stock using cache + today
     threshold = params.get("buy_threshold", 6)
@@ -313,5 +313,95 @@ def run_scan(params, held_tickers=None, history_cache=None):
         "date": trading_date,
         "timestamp": datetime.now().isoformat(),
         "buy_signals": [{"rank": i + 1, **s} for i, s in enumerate(signals[:20])],
-        "market_summary": {"twse_count": twse_n, "otc_count": otc_n, "scan_count": 50},
+        "market_summary": {"twse_count": twse_n, "otc_count": otc_n, "scan_count": 100},
     }
+
+
+def check_sell_signals(holdings, params, market_data, history_cache):
+    """Check sell conditions for user's holdings."""
+    from datetime import date as _date
+    signals = []
+    sp = params
+    cache_stocks = history_cache.get("stocks", {}) if history_cache else {}
+
+    for h in holdings:
+        ticker = h.get("ticker", "")
+        buy_price = h.get("buy_price", 0)
+        buy_date_str = h.get("buy_date", "")
+        name = h.get("name", "")
+
+        if not buy_price or not ticker:
+            continue
+
+        # Current price
+        cur_price = None
+        if market_data and ticker in market_data:
+            cur_price = market_data[ticker]["close"]
+        if not cur_price:
+            continue
+
+        ret = (cur_price / buy_price - 1) * 100
+
+        # Days held
+        try:
+            days_held = (_date.today() - _date.fromisoformat(buy_date_str)).days
+        except (ValueError, TypeError):
+            days_held = 0
+
+        stop_loss = sp.get("stop_loss", -20)
+        take_profit = sp.get("take_profit", 80)
+        hold_days = sp.get("hold_days", 30)
+        trailing_stop = sp.get("trailing_stop", 0)
+        reason = None
+
+        # 1. Stop loss
+        if ret <= stop_loss:
+            reason = f"停損！報酬 {ret:+.1f}%（停損線 {stop_loss}%）"
+
+        # 2. Take profit
+        if reason is None and ret >= take_profit:
+            reason = f"停利！報酬 +{ret:.1f}%（目標 +{take_profit}%）"
+
+        # 3. Max hold days
+        if reason is None and days_held >= hold_days:
+            reason = f"持有已達 {days_held} 天（上限 {hold_days} 天），報酬 {ret:+.1f}%"
+
+        # 4. Below MA60 (if history available)
+        if reason is None and int(sp.get("sell_below_ma", 0)) > 0 and ticker in cache_stocks:
+            cs = cache_stocks[ticker]
+            closes = cs["c"]
+            if ticker in market_data:
+                closes = closes + [market_data[ticker]["close"]]
+            if len(closes) > 60:
+                ma60 = float(np.mean(closes[-61:-1]))
+                if cur_price < ma60:
+                    reason = f"跌破 MA60！現價 {cur_price:.1f} < MA60 {ma60:.1f}，報酬 {ret:+.1f}%"
+
+        # 5. Stagnation exit
+        if reason is None and sp.get("use_stagnation_exit", 0):
+            stag_days = int(sp.get("stagnation_days", 10))
+            stag_min = sp.get("stagnation_min_ret", 5)
+            if days_held >= stag_days and ret < stag_min:
+                reason = f"停滯出場！持有 {days_held} 天報酬僅 {ret:+.1f}%"
+
+        # 6. Time decay (gradual profit requirement)
+        if reason is None and sp.get("use_time_decay", 0):
+            rpd = sp.get("ret_per_day", 0.5)
+            hd_half = int(hold_days) // 2
+            if days_held >= hd_half:
+                min_req = (days_held - hd_half) * rpd
+                if ret < min_req:
+                    reason = f"漸進停利！持有 {days_held} 天報酬 {ret:+.1f}%，低於期望 +{min_req:.1f}%"
+
+        if reason:
+            signals.append({
+                "ticker": ticker,
+                "name": name,
+                "buy_price": buy_price,
+                "current_price": cur_price,
+                "return": round(ret, 1),
+                "days_held": days_held,
+                "reason": reason,
+            })
+
+    return signals
