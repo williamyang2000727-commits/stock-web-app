@@ -52,6 +52,20 @@ def read_gist_file(filename):
     return data.get(filename, {})
 
 
+def write_gist_file(filename, content_str):
+    """Write a file to the data Gist."""
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    payload = {"files": {filename: {"content": content_str}}}
+    try:
+        r = requests.patch(
+            f"https://api.github.com/gists/{DATA_GIST_ID}",
+            headers=headers, json=payload, timeout=30,
+        )
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
 # ── Authentication ───────────────────────────────────────────
 def authenticate():
     if st.session_state.get("authenticated"):
@@ -144,10 +158,28 @@ held_tickers = tuple(h.get("ticker", "") for h in user_holdings)
 mac_scan = read_gist_file("scan_results.json")
 sell_signals_from_mac = mac_scan.get("sell_signals", []) if mac_scan else []
 
-# History cache from Gist (Mac pushes daily)
+# History cache: self-updating (web app 自己維護，不依賴 Mac)
 history_cache = read_gist_file("history_cache.json")
+cache_date = history_cache.get("updated", "") if history_cache else ""
 
-# Live scan (runs on page load, cached 30 min)
+if history_cache and cache_date:
+    # 抓今天市場資料，如果比快取新就追加並存回 Gist
+    from scanner import fetch_market_data
+    today_market, today_trading_date = fetch_market_data()
+    if today_market and today_trading_date > cache_date:
+        stocks = history_cache.get("stocks", {})
+        for ticker, hist in stocks.items():
+            if ticker in today_market:
+                info = today_market[ticker]
+                hist["c"] = hist["c"][-59:] + [info["close"]]
+                hist["h"] = hist["h"][-59:] + [info.get("high", info["close"])]
+                hist["l"] = hist["l"][-59:] + [info.get("low", info["close"])]
+                hist["v"] = hist["v"][-59:] + [info["vol"]]
+        history_cache["updated"] = today_trading_date
+        # 存回 Gist（每天只存一次）
+        write_gist_file("history_cache.json", json.dumps(history_cache, ensure_ascii=False))
+
+# Live scan (cached 30 min)
 scan = None
 if strategy_params and history_cache:
     scan = do_live_scan(dict(strategy_params), held_tickers, history_cache)
