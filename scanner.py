@@ -445,7 +445,32 @@ def run_scan(params, held_tickers=None, history_cache=None, indicator_states=Non
     }
 
 
-def check_sell_signals(holdings, params, market_data, history_cache):
+def fetch_trading_calendar():
+    """Fetch exact trading dates from TWSE (last 3 months, using 2330 as reference)."""
+    from datetime import date as _d
+    dates = set()
+    today = datetime.now(TW_TZ).date()
+    for offset in range(3):
+        m = today.month - offset
+        y = today.year
+        while m <= 0:
+            m += 12
+            y -= 1
+        date_str = _d(y, m, 1).strftime("%Y%m%d")
+        try:
+            r = requests.get(
+                f"https://www.twse.com.tw/exchangeReport/STOCK_DAY?response=json&date={date_str}&stockNo=2330",
+                timeout=10, verify=False, headers={"User-Agent": "Mozilla/5.0"},
+            )
+            for row in r.json().get("data", []):
+                parts = row[0].split("/")
+                dates.add(_d(int(parts[0]) + 1911, int(parts[1]), int(parts[2])))
+        except Exception:
+            pass
+    return dates
+
+
+def check_sell_signals(holdings, params, market_data, history_cache, trading_dates=None):
     """Check sell conditions for user's holdings."""
     from datetime import date as _date
     signals = []
@@ -470,12 +495,16 @@ def check_sell_signals(holdings, params, market_data, history_cache):
 
         ret = (cur_price / buy_price - 1) * 100
 
-        # Calendar days → approximate trading days (GPU uses trading days)
+        # Exact trading days (from TWSE calendar)
         try:
-            calendar_days = (datetime.now(TW_TZ).date() - _date.fromisoformat(buy_date_str)).days
+            buy_d = _date.fromisoformat(buy_date_str)
+            today_d = datetime.now(TW_TZ).date()
+            if trading_dates:
+                days_held = sum(1 for d in trading_dates if buy_d < d <= today_d)
+            else:
+                days_held = max(0, int((today_d - buy_d).days * 5 / 7))
         except (ValueError, TypeError):
-            calendar_days = 0
-        days_held = max(0, int(calendar_days * 5 / 7))  # approximate trading days
+            days_held = 0
 
         # Skip sell checks on buy day (matching GPU: dh < 1 → skip)
         if days_held < 1:

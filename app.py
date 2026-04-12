@@ -293,12 +293,20 @@ user_buy_signals = []
 if len(user_holdings) < max_positions and scan:
     user_buy_signals = scan.get("buy_signals", [])[:1]
 
+# Trading calendar (exact trading days from TWSE, cached 24h)
+@st.cache_data(ttl=86400, show_spinner=False)
+def _get_trading_cal():
+    from scanner import fetch_trading_calendar
+    return fetch_trading_calendar()
+
+trading_cal = _get_trading_cal()
+
 # Sell signals: live tracking using strategy sell conditions
 user_sell_signals = []
 if user_holdings and strategy_params and market_data:
     try:
         from scanner import check_sell_signals
-        user_sell_signals = check_sell_signals(user_holdings, strategy_params, market_data, history_cache)
+        user_sell_signals = check_sell_signals(user_holdings, strategy_params, market_data, history_cache, trading_cal)
         # Save updated peak_price (don't clear cache, just persist)
         save_user_holdings(username, user_holdings, clear_cache=False)
     except Exception:
@@ -391,9 +399,13 @@ with tab2:
             buy_price = h.get("buy_price", 0)
             buy_date_str = h.get("buy_date", "")
 
-            # Days held
+            # Trading days held (exact from TWSE calendar)
             try:
-                days = (tw_today() - date.fromisoformat(buy_date_str)).days
+                _bd = date.fromisoformat(buy_date_str)
+                if trading_cal:
+                    days = sum(1 for d in trading_cal if _bd < d <= tw_today())
+                else:
+                    days = max(0, int((tw_today() - _bd).days * 5 / 7))
             except (ValueError, TypeError):
                 days = 0
 
