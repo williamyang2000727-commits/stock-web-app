@@ -298,6 +298,8 @@ if user_holdings and strategy_params and market_data:
     try:
         from scanner import check_sell_signals
         user_sell_signals = check_sell_signals(user_holdings, strategy_params, market_data, history_cache)
+        # Save updated peak_price back to Gist
+        save_user_holdings(username, user_holdings)
     except Exception:
         pass
 

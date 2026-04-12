@@ -482,14 +482,8 @@ def check_sell_signals(holdings, params, market_data, history_cache):
         trailing_stop = sp.get("trailing_stop", 0)
         reason = None
 
-        # Peak price (from cache history)
-        peak_price = buy_price
-        if ticker in cache_stocks:
-            cs_closes = cache_stocks[ticker].get("c", [])
-            if cs_closes:
-                peak_price = max(buy_price, max(cs_closes))
-            if cur_price > peak_price:
-                peak_price = cur_price
+        # Peak price: only since buy (stored in holding, not from full cache)
+        peak_price = max(h.get("peak_price", buy_price), cur_price)
 
         # 1. Stop loss
         if ret <= stop_loss:
@@ -539,6 +533,9 @@ def check_sell_signals(holdings, params, market_data, history_cache):
                 min_req = (days_held - hd_half) * rpd
                 if ret < min_req:
                     reason = f"漸進停利！持有 {days_held} 天報酬 {ret:+.1f}%，低於期望 +{min_req:.1f}%"
+
+        # Update peak_price in holding (for persistent tracking)
+        h["peak_price"] = round(peak_price, 2)
 
         if reason:
             signals.append({
