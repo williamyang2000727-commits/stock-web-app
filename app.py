@@ -7,8 +7,15 @@ import streamlit as st
 import requests
 import json
 import pandas as pd
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 import hashlib
+
+# 台灣時區 (UTC+8)
+TW_TZ = timezone(timedelta(hours=8))
+def tw_now():
+    return datetime.now(TW_TZ)
+def tw_today():
+    return tw_now().date()
 
 # ── Page Config ──────────────────────────────────────────────
 st.set_page_config(
@@ -115,14 +122,14 @@ def next_trading_day(scan_date_str):
             nd += timedelta(days=1)
         return nd
     except (ValueError, TypeError):
-        return date.today()
+        return tw_today()
 
 
 def save_user_holdings(username, holdings):
     portfolios = read_gist_file("portfolios.json")
     if not isinstance(portfolios, dict):
         portfolios = {}
-    portfolios[username] = {"holdings": holdings, "updated": datetime.now().isoformat()}
+    portfolios[username] = {"holdings": holdings, "updated": tw_now().isoformat()}
     return write_gist_file("portfolios.json", portfolios)
 
 
@@ -137,7 +144,7 @@ username = st.session_state.username
 # ── Sidebar ──
 with st.sidebar:
     st.markdown(f"### 👤 {username}")
-    st.markdown(f"📅 {date.today().strftime('%Y/%m/%d')}")
+    st.markdown(f"📅 {tw_today().strftime('%Y/%m/%d')}")
     st.markdown("---")
     if st.button("🔄 重新整理", use_container_width=True):
         st.cache_data.clear()
@@ -313,7 +320,7 @@ with tab2:
 
             # Days held
             try:
-                days = (date.today() - date.fromisoformat(buy_date_str)).days
+                days = (tw_today() - date.fromisoformat(buy_date_str)).days
             except (ValueError, TypeError):
                 days = 0
 
@@ -368,7 +375,7 @@ with tab2:
                             min_value=0.01, step=0.01, format="%.2f", key=f"sell_price_{i}",
                         )
                     with sc2:
-                        sell_date = st.date_input("賣出日期", value=date.today(), key=f"sell_date_{i}")
+                        sell_date = st.date_input("賣出日期", value=tw_today(), key=f"sell_date_{i}")
 
                     if st.form_submit_button("確認賣出", use_container_width=True):
                         sell_ret = (sell_price / buy_price - 1) * 100 if buy_price > 0 else 0
@@ -396,7 +403,7 @@ with tab2:
                     new_name = st.text_input("股票名稱", placeholder="例：台積電")
                 with bc2:
                     new_price = st.number_input("買入價格", min_value=0.01, step=0.01, format="%.2f")
-                    new_date = st.date_input("買入日期", value=date.today())
+                    new_date = st.date_input("買入日期", value=tw_today())
 
                 if st.form_submit_button("確認買入", use_container_width=True):
                     if new_ticker and new_name and new_price > 0:

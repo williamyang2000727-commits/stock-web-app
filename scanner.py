@@ -5,7 +5,9 @@ Uses Gist history cache + TWSE/TPEx live data (zero yfinance)
 
 import requests
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+
+TW_TZ = timezone(timedelta(hours=8))
 import warnings
 import urllib3
 
@@ -16,7 +18,7 @@ warnings.filterwarnings("ignore")
 def fetch_market_data():
     """Fetch today's OHLCV from TWSE + TPEx (2 API calls)."""
     all_data = {}
-    today = datetime.now()
+    today = datetime.now(TW_TZ)
     date_ad = today.strftime("%Y%m%d")
     date_roc = f"{today.year - 1911}/{today.month:02d}/{today.day:02d}"
     trading_date = today.strftime("%Y-%m-%d")
@@ -318,7 +320,7 @@ def run_scan(params, held_tickers=None, history_cache=None):
 
     return {
         "date": trading_date,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(TW_TZ).isoformat(),
         "buy_signals": [{"rank": i + 1, **s} for i, s in enumerate(signals[:20])],
         "market_summary": {"twse_count": twse_n, "otc_count": otc_n, "scan_count": 100},
     }
@@ -351,7 +353,7 @@ def check_sell_signals(holdings, params, market_data, history_cache):
 
         # Days held
         try:
-            days_held = (_date.today() - _date.fromisoformat(buy_date_str)).days
+            days_held = (datetime.now(TW_TZ).date() - _date.fromisoformat(buy_date_str)).days
         except (ValueError, TypeError):
             days_held = 0
 
