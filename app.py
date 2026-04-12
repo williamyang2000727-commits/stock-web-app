@@ -138,10 +138,11 @@ with tab1:
         # Buy signals table
         buy_signals = scan.get("buy_signals", [])
         if buy_signals:
-            st.markdown(f"#### 🟢 達標股票 ({len(buy_signals)} 檔)")
+            top3 = buy_signals[:3]
+            st.markdown(f"#### 🟢 達標股票（前 3 名）")
 
             rows = []
-            for s in buy_signals:
+            for s in top3:
                 rows.append({
                     "排名": s.get("rank", ""),
                     "代碼": s.get("ticker", ""),
