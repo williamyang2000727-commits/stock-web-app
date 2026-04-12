@@ -48,14 +48,12 @@ def _read_gist(gist_id):
 
 
 def read_gist_file(filename):
-    """Read a specific file from the data Gist."""
     data = _read_gist(DATA_GIST_ID)
     return data.get(filename, {})
 
 
 # ── Authentication ───────────────────────────────────────────
 def authenticate():
-    """SHA256-based login. Users configured in .streamlit/secrets.toml."""
     if st.session_state.get("authenticated"):
         return True
 
@@ -85,6 +83,26 @@ def authenticate():
     return False
 
 
+# ── Live Scan ────────────────────────────────────────────────
+@st.cache_data(ttl=1800, show_spinner="正在掃描市場資料...")
+def do_live_scan(strategy_params, held_tickers_tuple):
+    """Run live scan (cached 30 min)."""
+    from scanner import run_scan
+    return run_scan(strategy_params, set(held_tickers_tuple))
+
+
+# ── Helper ───────────────────────────────────────────────────
+def next_trading_day(scan_date_str):
+    try:
+        d = date.fromisoformat(scan_date_str)
+        nd = d + timedelta(days=1)
+        while nd.weekday() >= 5:
+            nd += timedelta(days=1)
+        return nd
+    except (ValueError, TypeError):
+        return date.today()
+
+
 # ══════════════════════════════════════════════════════════════
 # MAIN APP
 # ══════════════════════════════════════════════════════════════
@@ -100,7 +118,7 @@ with st.sidebar:
     st.markdown(f"📅 {date.today().strftime('%Y/%m/%d')}")
     st.markdown("---")
 
-    if st.button("🔄 重新整理", use_container_width=True):
+    if st.button("🔄 重新掃描", use_container_width=True):
         st.cache_data.clear()
         st.rerun()
 
@@ -113,38 +131,41 @@ with st.sidebar:
     st.caption("🦞 龍蝦選股系統 v1.0")
     st.caption("策略引擎：GPU RTX 3060")
 
-# ── Load scan data ───────────────────────────────────────────
-scan = read_gist_file("scan_results.json")
+# ── Load data ────────────────────────────────────────────────
+# Strategy params from Gist
+strategy_params = read_gist_file("strategy_params.json")
 
-
-# ── Signal computation (before tabs, for badge count) ────────
-def next_trading_day(scan_date_str):
-    """掃描日的下一個交易日（跳過六日）"""
-    try:
-        d = date.fromisoformat(scan_date_str)
-        nd = d + timedelta(days=1)
-        while nd.weekday() >= 5:
-            nd += timedelta(days=1)
-        return nd
-    except (ValueError, TypeError):
-        return date.today()
-
-
+# User holdings from Gist
 portfolios = read_gist_file("portfolios.json")
 user_holdings = portfolios.get(username, {}).get("holdings", [])
+held_tickers = tuple(h.get("ticker", "") for h in user_holdings)
+
+# Sell signals from Mac scan (Gist)
+mac_scan = read_gist_file("scan_results.json")
+sell_signals_from_mac = mac_scan.get("sell_signals", []) if mac_scan else []
+
+# Live scan (runs on page load, cached 30 min)
+scan = None
+if strategy_params:
+    scan = do_live_scan(dict(strategy_params), held_tickers)
+
+# Fallback to Mac scan if live scan fails
+if not scan:
+    scan = mac_scan
+
 scan_date = scan.get("date", "") if scan else ""
+
+# ── Signal computation ───────────────────────────────────────
 max_positions = 2
 
-# Buy signals: only if user not full
 user_buy_signals = []
 if len(user_holdings) < max_positions and scan:
     user_buy_signals = scan.get("buy_signals", [])[:1]
 
-# Sell signals: match user holdings
 user_sell_signals = []
-user_tickers = {h.get("ticker") for h in user_holdings}
-for sig in (scan.get("sell_signals", []) if scan else []):
-    if sig.get("ticker") in user_tickers:
+user_tickers_set = {h.get("ticker") for h in user_holdings}
+for sig in sell_signals_from_mac:
+    if sig.get("ticker") in user_tickers_set:
         user_sell_signals.append(sig)
 
 signal_count = len(user_buy_signals) + len(user_sell_signals)
@@ -160,11 +181,12 @@ with tab0:
     if signal_count > 0:
         nd = next_trading_day(scan_date)
         nd_str = nd.strftime("%m/%d")
+        weekdays = ["一", "二", "三", "四", "五", "六", "日"]
 
         for sig in user_buy_signals:
             st.markdown(
                 f"### 🎯 買入訊號\n\n"
-                f"**請於 {nd_str}（{['一','二','三','四','五','六','日'][nd.weekday()]}）"
+                f"**請於 {nd_str}（{weekdays[nd.weekday()]}）"
                 f"13:25 前買入**\n\n"
                 f"---\n\n"
                 f"### {sig.get('name', '')}（{sig.get('ticker', '')}）\n\n"
@@ -175,7 +197,7 @@ with tab0:
         for sig in user_sell_signals:
             st.markdown(
                 f"### 📤 賣出訊號\n\n"
-                f"**請於 {nd_str}（{['一','二','三','四','五','六','日'][nd.weekday()]}）"
+                f"**請於 {nd_str}（{weekdays[nd.weekday()]}）"
                 f"9:00 開盤賣出**\n\n"
                 f"---\n\n"
                 f"### {sig.get('name', '')}（{sig.get('ticker', '')}）\n\n"
@@ -190,23 +212,20 @@ with tab0:
         else:
             st.warning("尚無掃描資料")
 
+    if scan_date:
+        st.caption(f"資料日期：{scan_date}")
+
 # ══════════════════════════════════════════════════════════════
 # TAB 1: BUY RANKINGS
 # ══════════════════════════════════════════════════════════════
 with tab1:
     if scan and scan.get("date"):
-        st.markdown(f"### 📊 買入排行 — {scan['date']}")
-
-        # Strategy info bar
-        c1, c2, c3 = st.columns(3)
-        c1.metric("策略", f"v{scan.get('strategy_version', '?')}")
-        c2.metric("分數", f"{scan.get('strategy_score', '?')}")
         ts = scan.get("timestamp", "")
-        c3.metric("掃描時間", ts.split("T")[-1][:5] if "T" in ts else ts)
+        ts_display = ts.split("T")[-1][:5] if "T" in ts else ts
+        st.markdown(f"### 📊 買入排行 — {scan['date']}（掃描於 {ts_display}）")
 
         st.markdown("---")
 
-        # Buy signals table
         buy_signals = scan.get("buy_signals", [])
         if buy_signals:
             top3 = buy_signals[:3]
@@ -227,13 +246,12 @@ with tab1:
 
             top = buy_signals[0]
             st.success(
-                f"🏆 今日第一名：**{top.get('name', '')}** "
+                f"🏆 第一名：**{top.get('name', '')}** "
                 f"({top.get('ticker', '')}) — {int(top.get('score', 0))} 分"
             )
         else:
             st.info("今日無買入訊號 — 沒有股票達到門檻分數")
 
-        # Market summary
         mkt = scan.get("market_summary", {})
         if mkt:
             st.markdown("---")
@@ -243,27 +261,22 @@ with tab1:
                 f"掃描範圍：成交量前 {mkt.get('scan_count', 100)}"
             )
     else:
-        st.warning("⚠️ 尚無掃描資料。掃描會在每個交易日 16:30 自動執行。")
+        st.warning("⚠️ 掃描失敗或尚無資料")
 
 # ══════════════════════════════════════════════════════════════
-# TAB 2: HOLDINGS STATUS (per-user from Gist portfolios.json)
+# TAB 2: HOLDINGS STATUS
 # ══════════════════════════════════════════════════════════════
 with tab2:
     st.markdown("### 💼 持倉狀態")
 
-    # Sell signals (from scan)
-    sell_signals = scan.get("sell_signals", []) if scan else []
-    if sell_signals:
-        for sig in sell_signals:
+    # Sell signals
+    if user_sell_signals:
+        for sig in user_sell_signals:
             st.error(
                 f"⚠️ **賣出訊號** — {sig.get('name', '')} ({sig.get('ticker', '')})\n\n"
                 f"報酬 {sig.get('return', 0):+.1f}% | {sig.get('reason', '')}"
             )
         st.markdown("---")
-
-    # Per-user holdings from portfolios.json
-    portfolios = read_gist_file("portfolios.json")
-    user_holdings = portfolios.get(username, {}).get("holdings", [])
 
     if user_holdings:
         st.markdown(f"#### 持倉（{len(user_holdings)} 檔）")
@@ -274,16 +287,14 @@ with tab2:
             buy_price = h.get("buy_price", 0)
             buy_date_str = h.get("buy_date", "")
 
-            # Days held
             try:
                 days = (date.today() - date.fromisoformat(buy_date_str)).days
             except (ValueError, TypeError):
                 days = 0
 
-            # Current price: try scan data first, fallback Yahoo
+            # Price from Mac scan or Yahoo
             cur_price = None
-            scan_holdings = scan.get("holdings_status", []) if scan else []
-            for sh in scan_holdings:
+            for sh in (mac_scan.get("holdings_status", []) if mac_scan else []):
                 if sh.get("ticker") == ticker and sh.get("current_price", 0) > 0:
                     cur_price = sh["current_price"]
                     break
@@ -301,12 +312,7 @@ with tab2:
                 except Exception:
                     pass
 
-            if cur_price and buy_price > 0:
-                ret = (cur_price / buy_price - 1) * 100
-            else:
-                ret = 0
-                cur_price = 0
-
+            ret = (cur_price / buy_price - 1) * 100 if cur_price and buy_price > 0 else 0
             icon = "🟢" if ret > 0 else "🔴" if ret < 0 else "⚪"
 
             c1, c2, c3, c4 = st.columns([3, 2, 2, 2])
