@@ -1,11 +1,10 @@
 """
 Live scanner for 龍蝦選股系統 Web App
-Fetches TWSE/TPEx market data + yfinance history → computes indicators → scores
+Uses Gist history cache + TWSE/TPEx live data (zero yfinance)
 """
 
 import requests
 import numpy as np
-import pandas as pd
 from datetime import datetime
 import warnings
 import urllib3
@@ -15,7 +14,7 @@ warnings.filterwarnings("ignore")
 
 
 def fetch_market_data():
-    """Fetch all stocks from TWSE + TPEx official APIs (2 calls)."""
+    """Fetch today's OHLCV from TWSE + TPEx (2 API calls)."""
     all_data = {}
     today = datetime.now()
     date_ad = today.strftime("%Y%m%d")
@@ -35,14 +34,17 @@ def fetch_market_data():
                 if code.startswith("00"):
                     continue
                 vol = int(row[2].replace(",", ""))
-                c = float(row[7].replace(",", ""))
+                o = float(row[4].replace(",", "").replace("--", "0"))
+                h = float(row[5].replace(",", "").replace("--", "0"))
+                lo = float(row[6].replace(",", "").replace("--", "0"))
+                c = float(row[7].replace(",", "").replace("--", "0"))
                 if vol > 0 and c > 0:
                     all_data[f"{code}.TW"] = {
+                        "open": o, "high": h, "low": lo,
                         "close": c, "vol": vol, "name": row[1].strip(),
                     }
             except Exception:
                 continue
-        # Extract actual trading date
         resp_date = data.get("date", "")
         if resp_date and len(resp_date) == 8:
             trading_date = f"{resp_date[:4]}-{resp_date[4:6]}-{resp_date[6:8]}"
@@ -64,8 +66,12 @@ def fetch_market_data():
                         continue
                     vol = int(row[8].replace(",", "")) if row[8].replace(",", "").isdigit() else 0
                     c = float(row[2].replace(",", "")) if row[2].replace(",", "").replace(".", "").isdigit() else 0
+                    o = float(row[4].replace(",", "")) if len(row) > 4 and row[4].replace(",", "").replace(".", "").isdigit() else c
+                    h = float(row[5].replace(",", "")) if len(row) > 5 and row[5].replace(",", "").replace(".", "").isdigit() else c
+                    lo = float(row[6].replace(",", "")) if len(row) > 6 and row[6].replace(",", "").replace(".", "").isdigit() else c
                     if vol > 0 and c > 0:
                         all_data[f"{code}.TWO"] = {
+                            "open": o, "high": h, "low": lo,
                             "close": c, "vol": vol, "name": row[1].strip(),
                         }
                 except Exception:
@@ -81,7 +87,6 @@ def compute_indicators(c, h, lo, vol):
     n = len(c)
     if n < 20:
         return None
-
     last = n - 1
     ind = {"price": float(c[last])}
 
@@ -100,116 +105,83 @@ def compute_indicators(c, h, lo, vol):
     else:
         ind["rsi"] = 50.0
 
-    # MAs (excludes today)
     for w in [3, 5, 8, 10, 15, 20, 30, 60]:
-        ind[f"ma{w}"] = float(np.mean(c[last - w : last])) if n > w else float(c[last])
+        ind[f"ma{w}"] = float(np.mean(c[last - w:last])) if n > w else float(c[last])
 
-    # Bollinger Band position
-    bb_win = c[last - 20 : last] if n > 20 else (c[:last] if last > 0 else c)
+    bb_win = c[last - 20:last] if n > 20 else (c[:last] if last > 0 else c)
     bb_mid = float(np.mean(bb_win))
     bb_std = float(np.std(bb_win))
     bb_range = 4 * bb_std
-    if bb_range > 1e-6:
-        ind["bb_pos"] = min(2.0, max(-0.5, float((c[last] - (bb_mid - 2 * bb_std)) / bb_range)))
-    else:
-        ind["bb_pos"] = 0.5
+    ind["bb_pos"] = min(2.0, max(-0.5, (c[last] - (bb_mid - 2 * bb_std)) / bb_range)) if bb_range > 1e-6 else 0.5
 
-    # Volume ratio
-    vol_avg = float(np.mean(vol[last - 20 : last])) if n > 20 else (float(np.mean(vol[:last])) if last > 0 else 1)
+    vol_avg = float(np.mean(vol[last - 20:last])) if n > 20 else (float(np.mean(vol[:last])) if last > 0 else 1)
     ind["vol_ratio"] = float(vol[last] / vol_avg) if vol_avg > 0 else 1.0
 
-    # Vol > yesterday
     if last >= 1 and n > 21:
-        vap = float(np.mean(vol[last - 21 : last - 1]))
+        vap = float(np.mean(vol[last - 21:last - 1]))
         vrp = float(vol[last - 1] / vap) if vap > 0 else 1
     else:
         vrp = 1.0
     ind["vol_gt_yesterday"] = 1 if ind["vol_ratio"] > vrp else 0
 
-    # KD
-    kv = np.zeros(n)
-    dv = np.zeros(n)
-    kv[0] = 50
-    dv[0] = 50
+    kv = np.zeros(n); dv = np.zeros(n); kv[0] = 50; dv[0] = 50
     for i in range(1, n):
-        lo9 = np.min(lo[max(0, i - 9) : i + 1])
-        hi9 = np.max(h[max(0, i - 9) : i + 1])
+        lo9 = np.min(lo[max(0, i - 9):i + 1])
+        hi9 = np.max(h[max(0, i - 9):i + 1])
         rsv = (c[i] - lo9) / (hi9 - lo9) * 100 if hi9 > lo9 else 50
-        kv[i] = kv[i - 1] * 2 / 3 + rsv * 1 / 3
-        dv[i] = dv[i - 1] * 2 / 3 + kv[i] * 1 / 3
+        kv[i] = kv[i - 1] * 2 / 3 + rsv / 3
+        dv[i] = dv[i - 1] * 2 / 3 + kv[i] / 3
     ind["k_val"] = float(kv[last])
     ind["kd_golden_cross"] = 1 if kv[last] > dv[last] and (last < 1 or kv[last - 1] <= dv[last - 1]) else 0
 
-    # Williams %R
     if n >= 15:
-        h14 = float(np.max(h[last - 14 : last + 1]))
-        l14 = float(np.min(lo[last - 14 : last + 1]))
+        h14 = float(np.max(h[last - 14:last + 1]))
+        l14 = float(np.min(lo[last - 14:last + 1]))
         ind["williams_r"] = float((h14 - c[last]) / (h14 - l14) * -100) if h14 > l14 else -50
     else:
         ind["williams_r"] = -50.0
 
-    # Momentum
     for d in [3, 5, 10]:
         ind[f"momentum_{d}"] = float((c[last] / c[last - d] - 1) * 100) if last >= d else 0
 
-    # Near high (21-day)
-    h20 = float(np.max(h[last - 20 : last + 1])) if n >= 21 else float(np.max(h))
+    h20 = float(np.max(h[last - 20:last + 1])) if n >= 21 else float(np.max(h))
     ind["near_high"] = float((c[last] / h20 - 1) * 100) if h20 > 0 else 0
-
-    # 60-day new high
-    ind["new_high_60"] = 1 if n > 60 and c[last] > np.max(h[last - 60 : last]) else 0
-
-    # Above MA60
+    ind["new_high_60"] = 1 if n > 60 and c[last] > np.max(h[last - 60:last]) else 0
     ind["above_ma60"] = 1 if c[last] >= ind.get("ma60", c[last]) else 0
 
-    # ATR (Wilder)
     tr = np.zeros(n)
     for i in range(1, n):
         tr[i] = max(h[i] - lo[i], abs(h[i] - c[i - 1]), abs(lo[i] - c[i - 1]))
     atr = np.zeros(n)
     for i in range(1, n):
-        atr[i] = np.mean(tr[1 : min(i + 1, 15)]) if i <= 14 else (atr[i - 1] * 13 + tr[i]) / 14
+        atr[i] = np.mean(tr[1:min(i + 1, 15)]) if i <= 14 else (atr[i - 1] * 13 + tr[i]) / 14
     ind["atr_pct"] = float(atr[last] / c[last] * 100) if c[last] > 0 else 0
 
-    # Squeeze
-    def _sq(idx):
-        if idx < 20:
-            return False
-        w = c[idx - 20 : idx]
-        m = np.mean(w)
-        s = np.std(w)
-        return (m + 2 * s) < (m + 1.5 * atr[idx]) and (m - 2 * s) > (m - 1.5 * atr[idx])
-
-    sq_t = _sq(last) if n > 20 else False
-    sq_y = _sq(last - 1) if last >= 1 and n > 21 else False
-    # Need MACD hist for squeeze
-    e12 = np.zeros(n)
-    e26 = np.zeros(n)
-    e12[0] = c[0]
-    e26[0] = c[0]
+    e12 = np.zeros(n); e26 = np.zeros(n); e12[0] = c[0]; e26[0] = c[0]
     for i in range(1, n):
         e12[i] = e12[i - 1] * (1 - 2 / 13) + c[i] * 2 / 13
         e26[i] = e26[i - 1] * (1 - 2 / 27) + c[i] * 2 / 27
     ml = e12 - e26
-    ms = np.zeros(n)
-    ms[0] = ml[0]
+    ms = np.zeros(n); ms[0] = ml[0]
     for i in range(1, n):
         ms[i] = ms[i - 1] * (1 - 2 / 10) + ml[i] * 2 / 10
     mh = ml - ms
+
+    def _sq(idx):
+        if idx < 20: return False
+        w = c[idx - 20:idx]; m = np.mean(w); s = np.std(w)
+        return (m + 2 * s) < (m + 1.5 * atr[idx]) and (m - 2 * s) > (m - 1.5 * atr[idx])
+    sq_y = _sq(last - 1) if last >= 1 and n > 21 else False
+    sq_t = _sq(last) if n > 20 else False
     ind["squeeze_fire"] = 1 if sq_y and not sq_t and mh[last] > 0 else 0
 
-    # ADX
     if n >= 29:
-        pdm = np.zeros(n)
-        mdm = np.zeros(n)
+        pdm = np.zeros(n); mdm = np.zeros(n)
         for i in range(1, n):
-            up = h[i] - h[i - 1]
-            dn = lo[i - 1] - lo[i]
+            up = h[i] - h[i - 1]; dn = lo[i - 1] - lo[i]
             pdm[i] = up if up > dn and up > 0 else 0
             mdm[i] = dn if dn > up and dn > 0 else 0
-        a14 = np.mean(tr[1:15])
-        sp = np.mean(pdm[1:15])
-        sm = np.mean(mdm[1:15])
+        a14 = np.mean(tr[1:15]); sp = np.mean(pdm[1:15]); sm = np.mean(mdm[1:15])
         dx = np.zeros(n)
         for i in range(14, n):
             if i > 14:
@@ -237,7 +209,7 @@ def score_stock(ind, params):
     mom_days = int(p.get("momentum_days", 5))
     mom_val = ind.get(f"momentum_{mom_days}", 0)
 
-    checks = [
+    for key, cond in [
         ("w_rsi", ind["rsi"] >= p.get("rsi_th", 55)),
         ("w_bb", ind["bb_pos"] >= p.get("bb_th", 0.7)),
         ("w_ma", ind["price"] > ind.get(f"ma{ma_fw}", 0)),
@@ -248,14 +220,11 @@ def score_stock(ind, params):
         ("w_new_high", ind.get("new_high_60", 0) == 1),
         ("w_adx", ind.get("adx", 0) >= p.get("adx_th", 25)),
         ("w_atr", ind.get("atr_pct", 0) >= p.get("atr_min", 2.0)),
-    ]
-
-    for key, cond in checks:
+    ]:
         w = int(p.get(key, 0))
         if w > 0 and cond:
             sc += w
 
-    # KD (special: cross mode)
     w = int(p.get("w_kd", 0))
     if w > 0:
         ok = ind["k_val"] >= p.get("kd_th", 50)
@@ -264,7 +233,6 @@ def score_stock(ind, params):
         if ok:
             sc += w
 
-    # Auxiliary +1 signals
     if p.get("above_ma60", 0) == 1 and ind.get("above_ma60", 0):
         sc += 1
     if p.get("vol_gt_yesterday", 0) == 1 and ind.get("vol_gt_yesterday", 0):
@@ -273,53 +241,49 @@ def score_stock(ind, params):
     return sc
 
 
-def run_scan(params, held_tickers=None):
-    """Run a live scan: fetch data → compute → score → rank."""
-    import yfinance as yf
-
+def run_scan(params, held_tickers=None, history_cache=None):
+    """
+    Live scan: Gist history cache + TWSE/TPEx today → indicators → score.
+    Zero yfinance. Pure TWSE/TPEx.
+    """
     if held_tickers is None:
         held_tickers = set()
+    if not history_cache or "stocks" not in history_cache:
+        return None
 
-    # 1. Market data from official APIs
+    cache_stocks = history_cache["stocks"]
+
+    # 1. Today's market data from official APIs
     market_data, trading_date = fetch_market_data()
     if not market_data or len(market_data) < 50:
         return None
 
-    # 2. Top 50 by volume (exclude held)
+    # 2. Top 50 by volume
     top = sorted(market_data.keys(), key=lambda t: market_data[t]["vol"], reverse=True)[:50]
 
-    # 3. Download 3-month history via yfinance
-    try:
-        hist = yf.download(top, period="3mo", progress=False, threads=True)
-    except Exception:
-        return None
-
-    if hist.empty:
-        return None
-
-    # 4. Score each stock
+    # 3. Score each stock using cache + today
     threshold = params.get("buy_threshold", 6)
     signals = []
 
     for ticker in top:
         if ticker in held_tickers:
             continue
-        try:
-            if len(top) > 1:
-                df_c = hist["Close"][ticker].dropna()
-                df_h = hist["High"][ticker].dropna()
-                df_l = hist["Low"][ticker].dropna()
-                df_v = hist["Volume"][ticker].dropna()
-            else:
-                df_c = hist["Close"].dropna()
-                df_h = hist["High"].dropna()
-                df_l = hist["Low"].dropna()
-                df_v = hist["Volume"].dropna()
+        if ticker not in cache_stocks:
+            continue
 
-            c = df_c.values.astype(np.float64)
-            h = df_h.values.astype(np.float64)
-            lo = df_l.values.astype(np.float64)
-            v = df_v.values.astype(np.float64)
+        try:
+            cs = cache_stocks[ticker]
+            hist_c = cs["c"]
+            hist_h = cs["h"]
+            hist_l = cs["l"]
+            hist_v = cs["v"]
+
+            # Append today's data if newer than cache
+            today_info = market_data[ticker]
+            c = np.array(hist_c + [today_info["close"]], dtype=np.float64)
+            h = np.array(hist_h + [today_info["high"]], dtype=np.float64)
+            lo = np.array(hist_l + [today_info["low"]], dtype=np.float64)
+            v = np.array(hist_v + [today_info["vol"]], dtype=np.float64)
 
             if len(c) < 20:
                 continue

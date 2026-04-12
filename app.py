@@ -85,10 +85,10 @@ def authenticate():
 
 # ── Live Scan ────────────────────────────────────────────────
 @st.cache_data(ttl=1800, show_spinner="正在掃描市場資料...")
-def do_live_scan(strategy_params, held_tickers_tuple):
-    """Run live scan (cached 30 min)."""
+def do_live_scan(_strategy_params, _held_tickers_tuple, _history_json):
+    """Run live scan using Gist cache + TWSE/TPEx (cached 30 min)."""
     from scanner import run_scan
-    return run_scan(strategy_params, set(held_tickers_tuple))
+    return run_scan(dict(_strategy_params), set(_held_tickers_tuple), _history_json)
 
 
 # ── Helper ───────────────────────────────────────────────────
@@ -144,10 +144,13 @@ held_tickers = tuple(h.get("ticker", "") for h in user_holdings)
 mac_scan = read_gist_file("scan_results.json")
 sell_signals_from_mac = mac_scan.get("sell_signals", []) if mac_scan else []
 
+# History cache from Gist (Mac pushes daily)
+history_cache = read_gist_file("history_cache.json")
+
 # Live scan (runs on page load, cached 30 min)
 scan = None
-if strategy_params:
-    scan = do_live_scan(dict(strategy_params), held_tickers)
+if strategy_params and history_cache:
+    scan = do_live_scan(dict(strategy_params), held_tickers, history_cache)
 
 # Fallback to Mac scan if live scan fails
 if not scan:
