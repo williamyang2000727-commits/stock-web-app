@@ -29,6 +29,7 @@ st.set_page_config(
 GITHUB_TOKEN = st.secrets["github_token"]
 DATA_GIST_ID = st.secrets["data_gist_id"]
 HISTORY_GIST_ID = st.secrets.get("history_gist_id", DATA_GIST_ID)
+GPU_GIST_ID = "c1bef892d33589baef2142ce250d18c2"  # GPU evolution pushes here
 
 
 # ── Gist I/O ────────────────────────────────────────────────
@@ -157,8 +158,25 @@ with st.sidebar:
     st.markdown("---")
     st.caption("🦞 龍蝦選股系統 v1.0")
 
-# ── Load Data ──
-strategy_params = read_gist_file("strategy_params.json")
+# ── Load Strategy (auto-sync from GPU Gist) ──
+@st.cache_data(ttl=300)
+def _read_gpu_strategy():
+    """Read latest strategy directly from GPU evolution Gist."""
+    try:
+        headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+        r = requests.get(f"https://api.github.com/gists/{GPU_GIST_ID}", headers=headers, timeout=15)
+        if r.status_code == 200:
+            fdata = list(r.json().get("files", {}).values())[0]
+            content = fdata.get("content", "{}")
+            strategy = json.loads(content)
+            return strategy.get("params", {})
+    except Exception:
+        pass
+    return {}
+
+strategy_params = _read_gpu_strategy()
+if not strategy_params:
+    strategy_params = read_gist_file("strategy_params.json")  # fallback
 portfolios = read_gist_file("portfolios.json")
 user_holdings = portfolios.get(username, {}).get("holdings", []) if isinstance(portfolios, dict) else []
 held_tickers = tuple(h.get("ticker", "") for h in user_holdings)
