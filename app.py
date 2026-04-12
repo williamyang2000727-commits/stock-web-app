@@ -149,8 +149,6 @@ with tab1:
                     "名稱": s.get("name", ""),
                     "分數": int(s.get("score", 0)),
                     "收盤價": s.get("close", 0),
-                    "量能比": f"{s.get('vol_ratio', 0):.1f}x",
-                    "訊號": s.get("reasons", ""),
                 })
 
             df = pd.DataFrame(rows)
