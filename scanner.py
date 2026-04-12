@@ -278,12 +278,19 @@ def run_scan(params, held_tickers=None, history_cache=None):
             hist_l = cs["l"]
             hist_v = cs["v"]
 
-            # Append today's data if newer than cache
+            # Only append today if newer than cache (avoid duplicate)
+            cache_updated = history_cache.get("updated", "")
             today_info = market_data[ticker]
-            c = np.array(hist_c + [today_info["close"]], dtype=np.float64)
-            h = np.array(hist_h + [today_info["high"]], dtype=np.float64)
-            lo = np.array(hist_l + [today_info["low"]], dtype=np.float64)
-            v = np.array(hist_v + [today_info["vol"]], dtype=np.float64)
+            if trading_date > cache_updated:
+                c = np.array(hist_c + [today_info["close"]], dtype=np.float64)
+                h = np.array(hist_h + [today_info["high"]], dtype=np.float64)
+                lo = np.array(hist_l + [today_info["low"]], dtype=np.float64)
+                v = np.array(hist_v + [today_info["vol"]], dtype=np.float64)
+            else:
+                c = np.array(hist_c, dtype=np.float64)
+                h = np.array(hist_h, dtype=np.float64)
+                lo = np.array(hist_l, dtype=np.float64)
+                v = np.array(hist_v, dtype=np.float64)
 
             if len(c) < 20:
                 continue
