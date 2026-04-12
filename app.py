@@ -32,10 +32,18 @@ def _read_gist(gist_id):
         if r.status_code == 200:
             result = {}
             for fname, fdata in r.json().get("files", {}).items():
-                try:
-                    result[fname] = json.loads(fdata["content"])
-                except (json.JSONDecodeError, KeyError):
-                    result[fname] = fdata.get("content", "")
+                # Large files (>1MB) are truncated by Gist API, fetch via raw_url
+                if fdata.get("truncated"):
+                    try:
+                        raw = requests.get(fdata["raw_url"], headers=headers, timeout=30)
+                        result[fname] = json.loads(raw.text)
+                    except Exception:
+                        result[fname] = {}
+                else:
+                    try:
+                        result[fname] = json.loads(fdata["content"])
+                    except (json.JSONDecodeError, KeyError):
+                        result[fname] = {}
             return result
     except Exception:
         pass
