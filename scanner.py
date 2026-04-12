@@ -243,7 +243,79 @@ def score_stock(ind, params):
     return sc
 
 
-def run_scan(params, held_tickers=None, history_cache=None):
+def compute_indicators_with_state(c, h, lo, vol, state):
+    """Use pre-computed running states for Wilder indicators (exact match with Mac)."""
+    n = len(c)
+    if n < 20:
+        return None
+    last = n - 1
+    ind = {"price": float(c[last])}
+
+    # RSI from running state (exact)
+    ag = state["rsi_ag"]; al = state["rsi_al"]
+    ind["rsi"] = float(100 - 100 / (1 + ag / al)) if al > 0 else 100.0
+
+    # MAs from cache (only needs recent data)
+    for w in [3, 5, 8, 10, 15, 20, 30, 60]:
+        ind[f"ma{w}"] = float(np.mean(c[last-w:last])) if n > w else float(c[last])
+
+    # BB from cache
+    bb_win = c[last-20:last] if n > 20 else (c[:last] if last > 0 else c)
+    bb_mid = float(np.mean(bb_win)); bb_std = float(np.std(bb_win))
+    bb_range = 4 * bb_std
+    ind["bb_pos"] = min(2.0, max(-0.5, (c[last]-(bb_mid-2*bb_std))/bb_range)) if bb_range > 1e-6 else 0.5
+
+    # Volume from cache
+    vol_avg = float(np.mean(vol[last-20:last])) if n > 20 else (float(np.mean(vol[:last])) if last > 0 else 1)
+    ind["vol_ratio"] = float(vol[last] / vol_avg) if vol_avg > 0 else 1.0
+    if last >= 1 and n > 21:
+        vap = float(np.mean(vol[last-21:last-1]))
+        vrp = float(vol[last-1] / vap) if vap > 0 else 1
+    else:
+        vrp = 1.0
+    ind["vol_gt_yesterday"] = 1 if ind["vol_ratio"] > vrp else 0
+
+    # KD from running state
+    ind["k_val"] = state["kd_k"]
+    ind["kd_golden_cross"] = 1 if state["kd_k"] > state["kd_d"] and state["kd_k_prev"] <= state["kd_d_prev"] else 0
+
+    # Williams %R from cache (only needs 15 days)
+    if n >= 15:
+        h14 = float(np.max(h[last-14:last+1])); l14 = float(np.min(lo[last-14:last+1]))
+        ind["williams_r"] = float((h14-c[last])/(h14-l14)*-100) if h14 > l14 else -50
+    else:
+        ind["williams_r"] = -50.0
+
+    # Momentum from cache
+    for d in [3, 5, 10]:
+        ind[f"momentum_{d}"] = float((c[last]/c[last-d]-1)*100) if last >= d else 0
+
+    # Near high / new high from cache
+    h20 = float(np.max(h[last-20:last+1])) if n >= 21 else float(np.max(h))
+    ind["near_high"] = float((c[last]/h20-1)*100) if h20 > 0 else 0
+    ind["new_high_60"] = 1 if n > 60 and c[last] > np.max(h[last-60:last]) else 0
+    ind["above_ma60"] = 1 if c[last] >= ind.get("ma60", c[last]) else 0
+
+    # ATR from running state (exact)
+    ind["atr_pct"] = float(state["atr14"] / c[last] * 100) if c[last] > 0 else 0
+
+    # Squeeze: use running state ATR + cache BB
+    atr_val = state["atr14"]
+    def _sq_with_atr(idx, atr_v):
+        if idx < 20: return False
+        w = c[idx-20:idx]; m = np.mean(w); s = np.std(w)
+        return (m+2*s) < (m+1.5*atr_v) and (m-2*s) > (m-1.5*atr_v)
+    sq_t = _sq_with_atr(last, atr_val) if n > 20 else False
+    sq_y = _sq_with_atr(last-1, atr_val) if last >= 1 and n > 21 else False
+    ind["squeeze_fire"] = 1 if sq_y and not sq_t and state["mh"] > 0 else 0
+
+    # ADX from running state (exact)
+    ind["adx"] = float(state["adx_val"])
+
+    return ind
+
+
+def run_scan(params, held_tickers=None, history_cache=None, indicator_states=None):
     """
     Live scan: Gist history cache + TWSE/TPEx today → indicators → score.
     Zero yfinance. Pure TWSE/TPEx.
@@ -297,7 +369,11 @@ def run_scan(params, held_tickers=None, history_cache=None):
             if len(c) < 20:
                 continue
 
-            ind = compute_indicators(c, h, lo, v)
+            # Use running state if available (exact match with Mac)
+            if ticker in states:
+                ind = compute_indicators_with_state(c, h, lo, v, states[ticker])
+            else:
+                ind = compute_indicators(c, h, lo, v)
             if ind is None:
                 continue
 
@@ -332,6 +408,7 @@ def check_sell_signals(holdings, params, market_data, history_cache):
     signals = []
     sp = params
     cache_stocks = history_cache.get("stocks", {}) if history_cache else {}
+    states = indicator_states.get("states", {}) if indicator_states else {}
 
     for h in holdings:
         ticker = h.get("ticker", "")

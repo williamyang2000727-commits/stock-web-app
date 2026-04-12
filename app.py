@@ -204,8 +204,19 @@ if history_cache and cache_date and market_data and trading_date > cache_date:
     except Exception:
         pass
 
-# ── Scan Results (Gist = 正確的完整掃描結果) ──
-scan = read_gist_file("scan_results.json")
+# ── Indicator States (pre-computed from full history, 598 KB) ──
+indicator_states = read_gist_file("indicator_state.json")
+
+# ── Live Scan (uses running states = exact match with Mac) ──
+scan = None
+if strategy_params and history_cache and history_cache.get("stocks"):
+    try:
+        from scanner import run_scan
+        scan = run_scan(dict(strategy_params), set(held_tickers), history_cache, indicator_states)
+    except Exception:
+        pass
+if not scan or not scan.get("buy_signals"):
+    scan = read_gist_file("scan_results.json")
 
 scan_date = scan.get("date", "") if scan else ""
 
