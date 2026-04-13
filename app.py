@@ -19,8 +19,7 @@ def tw_today():
 
 # ── Page Config ──────────────────────────────────────────────
 st.set_page_config(
-    page_title="龍蝦選股系統",
-    page_icon="🦞",
+    page_title="選股系統",
     layout="wide",
     initial_sidebar_state="expanded",
 )
