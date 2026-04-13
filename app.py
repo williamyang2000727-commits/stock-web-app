@@ -563,7 +563,9 @@ with tab3:
 
         # Stats
         c1, c2, c3, c4 = st.columns(4)
-        c1.metric("總報酬", f"{bt_stats.get('total_return_pct', 0):,.1f}%")
+        # Total return = sum (matching GPU), not compound
+        _bt_total = sum(t.get("return_pct", 0) for t in bt_trades if t.get("reason") != "持有中")
+        c1.metric("總報酬", f"{_bt_total:,.1f}%")
         c2.metric("勝率", f"{bt_stats.get('win_rate', 0):.1f}%")
         c3.metric("交易次數", f"{bt_stats.get('total_trades', 0)}")
         c4.metric("平均報酬", f"{bt_stats.get('avg_return', 0):+.1f}%")
