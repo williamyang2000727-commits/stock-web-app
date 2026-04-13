@@ -557,6 +557,97 @@ with tab3:
     bt_stats = backtest.get("stats", {}) if backtest else {}
     bt_trades = backtest.get("trades", []) if backtest else []
 
+    # === Auto-extend backtest to today ===
+    if bt_trades and market_data and trading_date:
+        bt_end = bt_stats.get("end_date", "")
+        if trading_date > bt_end:
+            import numpy as _np
+            from scanner import compute_indicators, score_stock
+
+            # Reconstruct simulated holdings (trades with reason="持有中")
+            sim_holdings = [t for t in bt_trades if t.get("reason") == "持有中"]
+            bt_trades = [t for t in bt_trades if t.get("reason") != "持有中"]
+            _max_pos = int(strategy_params.get("max_positions", 2))
+            _cache = history_cache.get("stocks", {}) if history_cache else {}
+            _states = indicator_states.get("states", {}) if indicator_states else {}
+            _new_trades = []
+
+            # Check sell for simulated holdings
+            for h in list(sim_holdings):
+                tk = h.get("ticker", "")
+                if tk not in market_data:
+                    continue
+                bp = h.get("buy_price", 0)
+                cur = market_data[tk]["close"]
+                ret = (cur / bp - 1) * 100 if bp > 0 else 0
+                buy_d = h.get("buy_date", "")
+                try:
+                    dh = sum(1 for d in trading_cal if date.fromisoformat(buy_d) < d <= date.fromisoformat(trading_date)) if trading_cal else 0
+                except:
+                    dh = 0
+                pk = max(h.get("peak_price", bp), cur)
+                reason = None
+
+                if dh < 1:
+                    continue
+                if ret <= strategy_params.get("stop_loss", -20):
+                    reason = f"停損 {ret:+.1f}%"
+                if not reason and strategy_params.get("use_take_profit", 1) and ret >= strategy_params.get("take_profit", 80):
+                    reason = f"停利 +{ret:.1f}%"
+                if not reason and strategy_params.get("trailing_stop", 0) > 0 and pk > bp * 1.01:
+                    if (cur / pk - 1) * 100 <= -strategy_params["trailing_stop"]:
+                        reason = f"移動停利 {(cur/pk-1)*100:.1f}%"
+                if not reason and strategy_params.get("use_time_decay", 0):
+                    hh = int(strategy_params.get("hold_days", 30)) // 2
+                    if dh >= hh and ret < (dh - hh) * strategy_params.get("ret_per_day", 0.5):
+                        reason = "漸進停利"
+                if not reason and strategy_params.get("use_profit_lock", 0):
+                    pg = (pk / bp - 1) * 100
+                    if pg >= strategy_params.get("lock_trigger", 30) and ret < strategy_params.get("lock_floor", 10):
+                        reason = "鎖利"
+                if not reason and dh >= int(strategy_params.get("hold_days", 30)):
+                    reason = f"到期{dh}天 {ret:+.1f}%"
+
+                if reason:
+                    _new_trades.append({
+                        "ticker": tk, "name": h.get("name", ""),
+                        "buy_price": bp, "sell_price": round(cur, 2),
+                        "hold_days": dh, "return_pct": round(ret, 1),
+                        "reason": reason, "buy_date": buy_d, "sell_date": trading_date,
+                    })
+                    sim_holdings.remove(h)
+
+            # Check buy if slots available
+            if len(sim_holdings) < _max_pos and scan and scan.get("buy_signals"):
+                held_tks = {h["ticker"] for h in sim_holdings}
+                for sig in scan["buy_signals"]:
+                    if len(sim_holdings) >= _max_pos:
+                        break
+                    tk = sig.get("ticker", "")
+                    if tk in held_tks:
+                        continue
+                    if tk in market_data:
+                        sim_holdings.append({
+                            "ticker": tk, "name": sig.get("name", ""),
+                            "buy_price": market_data[tk]["close"],
+                            "buy_date": trading_date, "reason": "持有中",
+                            "sell_price": market_data[tk]["close"],
+                            "hold_days": 0, "return_pct": 0,
+                        })
+                        held_tks.add(tk)
+
+            # Merge: completed trades + new trades + still holding
+            bt_trades = bt_trades + _new_trades + sim_holdings
+            bt_stats["end_date"] = trading_date
+
+            # Save updated backtest to Gist
+            if _new_trades or trading_date > bt_end:
+                try:
+                    _updated_bt = {"stats": bt_stats, "trades": bt_trades}
+                    write_gist_file("backtest_results.json", _updated_bt, clear_cache=False)
+                except:
+                    pass
+
     if bt_stats:
         st.markdown(f"**回測期間**：{bt_stats.get('start_date', '')} ~ {bt_stats.get('end_date', '')}（{bt_stats.get('total_days', 0)} 交易日）")
         st.markdown("---")
