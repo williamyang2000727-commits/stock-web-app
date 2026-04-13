@@ -704,24 +704,88 @@ with tab3:
         st.markdown(f"**回測期間**：{bt_stats.get('start_date', '')} ~ {bt_stats.get('end_date', '')}（{bt_stats.get('total_days', 0)} 交易日）")
         st.markdown("---")
 
-        # Stats
-        c1, c2, c3, c4 = st.columns(4)
-        # Total return = sum (matching GPU), not compound
-        _bt_total = sum(t.get("return_pct", 0) for t in bt_trades if t.get("reason") != "持有中")
+        # Compute all stats from trades
+        _completed = [t for t in bt_trades if t.get("reason") != "持有中"]
+        _rets = [t.get("return_pct", 0) for t in _completed]
+        _wins = [r for r in _rets if r > 0]
+        _losses = [r for r in _rets if r <= 0]
+        _bt_total = sum(_rets)
+        _win_rate = len(_wins) / len(_rets) * 100 if _rets else 0
+        _avg_ret = sum(_rets) / len(_rets) if _rets else 0
+        _avg_win = sum(_wins) / len(_wins) if _wins else 0
+        _avg_loss = sum(_losses) / len(_losses) if _losses else 0
+        _max_win = max(_rets) if _rets else 0
+        _max_loss = min(_rets) if _rets else 0
+        _avg_hold = sum(t.get("hold_days", 0) for t in _completed) / len(_completed) if _completed else 0
+
+        # CAGR: compound annual growth rate
+        _compound = 1.0
+        for r in _rets:
+            _compound *= (1 + r / 100)
+        try:
+            _start_d = date.fromisoformat(bt_stats.get("start_date", "2022-01-01"))
+            _end_d = date.fromisoformat(bt_stats.get("end_date", str(tw_today())))
+            _years = max((_end_d - _start_d).days / 365.25, 0.1)
+            _cagr = (_compound ** (1 / _years) - 1) * 100
+        except:
+            _cagr = 0
+
+        # Max Drawdown: track equity curve
+        _equity = 1.0
+        _peak_eq = 1.0
+        _max_dd = 0
+        for r in _rets:
+            _equity *= (1 + r / 100)
+            _peak_eq = max(_peak_eq, _equity)
+            _dd = (_equity / _peak_eq - 1) * 100
+            _max_dd = min(_max_dd, _dd)
+
+        # Sharpe Ratio (annualized, assume 252 trading days, risk-free = 0)
+        import math
+        if len(_rets) >= 2:
+            _mean_r = sum(_rets) / len(_rets)
+            _std_r = math.sqrt(sum((r - _mean_r) ** 2 for r in _rets) / (len(_rets) - 1))
+            _trades_per_year = 252 / _avg_hold if _avg_hold > 0 else 12
+            _sharpe = (_mean_r / _std_r) * math.sqrt(_trades_per_year) if _std_r > 0 else 0
+        else:
+            _sharpe = 0
+
+        # Profit Factor: total wins / total losses
+        _total_win = sum(_wins) if _wins else 0
+        _total_loss = abs(sum(_losses)) if _losses else 0
+        _profit_factor = _total_win / _total_loss if _total_loss > 0 else float('inf')
+
+        # Win/Loss Ratio (盈虧比): avg win / avg loss
+        _wl_ratio = abs(_avg_win / _avg_loss) if _avg_loss != 0 else float('inf')
+
+        # Display
+        st.markdown("#### 核心指標")
+        c1, c2, c3 = st.columns(3)
         c1.metric("總報酬", f"{_bt_total:,.1f}%")
-        c2.metric("勝率", f"{bt_stats.get('win_rate', 0):.1f}%")
-        c3.metric("交易次數", f"{bt_stats.get('total_trades', 0)}")
-        c4.metric("平均報酬", f"{bt_stats.get('avg_return', 0):+.1f}%")
+        c2.metric("CAGR", f"{_cagr:.1f}%")
+        c3.metric("Max Drawdown", f"{_max_dd:.1f}%")
 
-        c5, c6, c7, c8 = st.columns(4)
-        c5.metric("平均獲利", f"+{bt_stats.get('avg_win', 0):.1f}%")
-        c6.metric("平均虧損", f"{bt_stats.get('avg_loss', 0):.1f}%")
-        c7.metric("最大獲利", f"+{bt_stats.get('max_win', 0):.1f}%")
-        c8.metric("最大虧損", f"{bt_stats.get('max_loss', 0):.1f}%")
+        c4, c5, c6 = st.columns(3)
+        c4.metric("Sharpe Ratio", f"{_sharpe:.2f}")
+        c5.metric("勝率", f"{_win_rate:.1f}%")
+        c6.metric("盈虧比", f"{_wl_ratio:.2f}")
 
-        c9, c10 = st.columns(2)
-        c9.metric("平均持有天數", f"{bt_stats.get('avg_hold_days', 0):.0f} 天")
-        c10.metric("持倉上限", f"{int(strategy_params.get('max_positions', 2))} 檔")
+        c7, c8, c9 = st.columns(3)
+        c7.metric("Profit Factor", f"{_profit_factor:.2f}")
+        c8.metric("交易次數", f"{len(_completed)}")
+        c9.metric("平均報酬", f"{_avg_ret:+.1f}%")
+
+        st.markdown("---")
+        st.markdown("#### 詳細數據")
+        c10, c11, c12, c13 = st.columns(4)
+        c10.metric("平均獲利", f"+{_avg_win:.1f}%")
+        c11.metric("平均虧損", f"{_avg_loss:.1f}%")
+        c12.metric("最大獲利", f"+{_max_win:.1f}%")
+        c13.metric("最大虧損", f"{_max_loss:.1f}%")
+
+        c14, c15 = st.columns(2)
+        c14.metric("平均持有天數", f"{_avg_hold:.0f} 天")
+        c15.metric("持倉上限", f"{int(strategy_params.get('max_positions', 2))} 檔")
 
         # Trade list
         st.markdown("---")
