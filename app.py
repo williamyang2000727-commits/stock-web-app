@@ -670,12 +670,16 @@ with tab3:
                                     _np.array(cs["l"][:_ei],dtype=_np.float64),
                                     _np.array(cs["v"][:_ei],dtype=_np.float64))
                                 if ind and score_stock(ind,_sp) >= _buy_th:
+                                    # Name: try live market_data (has names), fallback to ticker
+                                    _nm = ""
+                                    if market_data and tk in market_data:
+                                        _nm = market_data[tk].get("name", "")
                                     _sigs.append({"tk":tk,"sc":score_stock(ind,_sp),"vol":_dmkt[tk]["vol"],
-                                        "name":_dmkt.get(tk,{}).get("name","")or tk,"price":_dmkt[tk]["close"]})
+                                        "name":_nm or tk.replace(".TW","").replace(".TWO",""),"price":_dmkt[tk]["close"]})
                             except: continue
                         if _sigs:
                             _sigs.sort(key=lambda x:(x["sc"],x["vol"]),reverse=True)
-                            for s in _sigs[:_max_pos-len(sim_holdings)]:
+                            for s in _sigs[:1]:  # Only buy #1 per day (matching GPU)
                                 sim_holdings.append({"ticker":s["tk"],"name":s["name"],"buy_price":s["price"],
                                     "buy_date":sd_str,"peak_price":s["price"],"sell_price":s["price"],
                                     "hold_days":0,"return_pct":0,"reason":"持有中"})
