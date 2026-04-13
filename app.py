@@ -343,7 +343,7 @@ signal_count = len(user_buy_signals) + len(user_sell_signals)
 signal_label = f"🔴 訊號 ({signal_count})" if signal_count > 0 else "訊號"
 
 # ── Tabs ──
-tab0, tab1, tab2 = st.tabs([signal_label, "📊 買入排行", "💼 持倉管理"])
+tab0, tab1, tab2, tab3 = st.tabs([signal_label, "📊 買入排行", "💼 持倉管理", "📋 回測績效"])
 
 # ══════════════════════════════════════════════════════════════
 # TAB 0: SIGNALS
@@ -546,3 +546,69 @@ with tab2:
                             st.error("儲存失敗")
                     else:
                         st.error("請填寫完整資訊")
+
+# ══════════════════════════════════════════════════════════════
+# TAB 3: BACKTEST RESULTS
+# ══════════════════════════════════════════════════════════════
+with tab3:
+    st.markdown("### 📋 回測績效")
+
+    backtest = read_gist_file("backtest_results.json")
+    bt_stats = backtest.get("stats", {}) if backtest else {}
+    bt_trades = backtest.get("trades", []) if backtest else []
+
+    if bt_stats:
+        st.markdown(f"**回測期間**：{bt_stats.get('start_date', '')} ~ {bt_stats.get('end_date', '')}（{bt_stats.get('total_days', 0)} 交易日）")
+        st.markdown("---")
+
+        # Stats
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("總報酬", f"{bt_stats.get('total_return_pct', 0):,.1f}%")
+        c2.metric("勝率", f"{bt_stats.get('win_rate', 0):.1f}%")
+        c3.metric("交易次數", f"{bt_stats.get('total_trades', 0)}")
+        c4.metric("平均報酬", f"{bt_stats.get('avg_return', 0):+.1f}%")
+
+        c5, c6, c7, c8 = st.columns(4)
+        c5.metric("平均獲利", f"+{bt_stats.get('avg_win', 0):.1f}%")
+        c6.metric("平均虧損", f"{bt_stats.get('avg_loss', 0):.1f}%")
+        c7.metric("最大獲利", f"+{bt_stats.get('max_win', 0):.1f}%")
+        c8.metric("最大虧損", f"{bt_stats.get('max_loss', 0):.1f}%")
+
+        c9, c10 = st.columns(2)
+        c9.metric("平均持有天數", f"{bt_stats.get('avg_hold_days', 0):.0f} 天")
+        c10.metric("持倉上限", f"{int(strategy_params.get('max_positions', 2))} 檔")
+
+        # Trade list
+        st.markdown("---")
+        st.markdown(f"#### 交易明細（{len(bt_trades)} 筆）")
+
+        if bt_trades:
+            trade_rows = []
+            for t in bt_trades:
+                ret = t.get("return_pct", 0)
+                icon = "🟢" if ret > 0 else "🔴" if ret < 0 else "⚪"
+                trade_rows.append({
+                    "": icon,
+                    "股票": t.get("ticker", ""),
+                    "買入日": t.get("buy_date", ""),
+                    "賣出日": t.get("sell_date", ""),
+                    "買入價": t.get("buy_price", 0),
+                    "賣出價": t.get("sell_price", 0),
+                    "報酬%": f"{ret:+.1f}%",
+                    "持有天數": t.get("hold_days", 0),
+                    "出場原因": t.get("reason", ""),
+                })
+            df_trades = pd.DataFrame(trade_rows)
+            st.dataframe(df_trades, use_container_width=True, hide_index=True, height=500)
+
+            # Exit reason breakdown
+            st.markdown("---")
+            st.markdown("#### 出場原因分佈")
+            reasons = {}
+            for t in bt_trades:
+                r = t.get("reason", "其他").split("！")[0].split(" ")[0]
+                reasons[r] = reasons.get(r, 0) + 1
+            for r, count in sorted(reasons.items(), key=lambda x: -x[1]):
+                st.caption(f"  {r}：{count} 次")
+    else:
+        st.info("回測資料準備中...歷史資料下載完成後會自動顯示。")
