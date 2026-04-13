@@ -557,96 +557,135 @@ with tab3:
     bt_stats = backtest.get("stats", {}) if backtest else {}
     bt_trades = backtest.get("trades", []) if backtest else []
 
-    # === Auto-extend backtest to today ===
-    if bt_trades and market_data and trading_date:
+    # === Auto-extend backtest day-by-day to today (using history cache) ===
+    if bt_trades and trading_date:
         bt_end = bt_stats.get("end_date", "")
-        if trading_date > bt_end:
+        if trading_date > bt_end and trading_cal and history_cache:
             import numpy as _np
             from scanner import compute_indicators, score_stock
 
-            # Reconstruct simulated holdings (trades with reason="持有中")
-            sim_holdings = [t for t in bt_trades if t.get("reason") == "持有中"]
-            bt_trades = [t for t in bt_trades if t.get("reason") != "持有中"]
-            _max_pos = int(strategy_params.get("max_positions", 2))
             _cache = history_cache.get("stocks", {}) if history_cache else {}
-            _states = indicator_states.get("states", {}) if indicator_states else {}
-            _new_trades = []
+            _cache_updated = history_cache.get("updated", "") if history_cache else ""
+            _sp = strategy_params
+            _max_pos = int(_sp.get("max_positions", 2))
+            _buy_th = _sp.get("buy_threshold", 10)
 
-            # Check sell for simulated holdings
-            for h in list(sim_holdings):
-                tk = h.get("ticker", "")
-                if tk not in market_data:
-                    continue
-                bp = h.get("buy_price", 0)
-                cur = market_data[tk]["close"]
-                ret = (cur / bp - 1) * 100 if bp > 0 else 0
-                buy_d = h.get("buy_date", "")
+            # Find trading days to simulate
+            _all_cal = sorted(trading_cal)
+            try:
+                _bt_end_d = date.fromisoformat(bt_end)
+                _cache_end_d = date.fromisoformat(_cache_updated) if _cache_updated else _bt_end_d
+                _sim_dates = [d for d in _all_cal if _bt_end_d < d <= _cache_end_d]
+            except:
+                _sim_dates = []
+
+            # Add today if TWSE has newer data than cache
+            if trading_date > _cache_updated:
                 try:
-                    dh = sum(1 for d in trading_cal if date.fromisoformat(buy_d) < d <= date.fromisoformat(trading_date)) if trading_cal else 0
-                except:
-                    dh = 0
-                pk = max(h.get("peak_price", bp), cur)
-                reason = None
-
-                if dh < 1:
-                    continue
-                if ret <= strategy_params.get("stop_loss", -20):
-                    reason = f"停損 {ret:+.1f}%"
-                if not reason and strategy_params.get("use_take_profit", 1) and ret >= strategy_params.get("take_profit", 80):
-                    reason = f"停利 +{ret:.1f}%"
-                if not reason and strategy_params.get("trailing_stop", 0) > 0 and pk > bp * 1.01:
-                    if (cur / pk - 1) * 100 <= -strategy_params["trailing_stop"]:
-                        reason = f"移動停利 {(cur/pk-1)*100:.1f}%"
-                if not reason and strategy_params.get("use_time_decay", 0):
-                    hh = int(strategy_params.get("hold_days", 30)) // 2
-                    if dh >= hh and ret < (dh - hh) * strategy_params.get("ret_per_day", 0.5):
-                        reason = "漸進停利"
-                if not reason and strategy_params.get("use_profit_lock", 0):
-                    pg = (pk / bp - 1) * 100
-                    if pg >= strategy_params.get("lock_trigger", 30) and ret < strategy_params.get("lock_floor", 10):
-                        reason = "鎖利"
-                if not reason and dh >= int(strategy_params.get("hold_days", 30)):
-                    reason = f"到期{dh}天 {ret:+.1f}%"
-
-                if reason:
-                    _new_trades.append({
-                        "ticker": tk, "name": h.get("name", ""),
-                        "buy_price": bp, "sell_price": round(cur, 2),
-                        "hold_days": dh, "return_pct": round(ret, 1),
-                        "reason": reason, "buy_date": buy_d, "sell_date": trading_date,
-                    })
-                    sim_holdings.remove(h)
-
-            # Check buy if slots available
-            if len(sim_holdings) < _max_pos and scan and scan.get("buy_signals"):
-                held_tks = {h["ticker"] for h in sim_holdings}
-                for sig in scan["buy_signals"]:
-                    if len(sim_holdings) >= _max_pos:
-                        break
-                    tk = sig.get("ticker", "")
-                    if tk in held_tks:
-                        continue
-                    if tk in market_data:
-                        sim_holdings.append({
-                            "ticker": tk, "name": sig.get("name", ""),
-                            "buy_price": market_data[tk]["close"],
-                            "buy_date": trading_date, "reason": "持有中",
-                            "sell_price": market_data[tk]["close"],
-                            "hold_days": 0, "return_pct": 0,
-                        })
-                        held_tks.add(tk)
-
-            # Merge: completed trades + new trades + still holding
-            bt_trades = bt_trades + _new_trades + sim_holdings
-            bt_stats["end_date"] = trading_date
-
-            # Save updated backtest to Gist
-            if _new_trades or trading_date > bt_end:
-                try:
-                    _updated_bt = {"stats": bt_stats, "trades": bt_trades}
-                    write_gist_file("backtest_results.json", _updated_bt, clear_cache=False)
+                    _td = date.fromisoformat(trading_date)
+                    if _td not in _sim_dates:
+                        _sim_dates.append(_td)
                 except:
                     pass
+
+            # Map cache dates: last entry = cache_updated, previous = previous trading day
+            _cal_up_to_cache = [d for d in _all_cal if d <= _cache_end_d] if _cache_updated else []
+
+            if _sim_dates and (_cal_up_to_cache or market_data):
+                sim_holdings = [dict(t) for t in bt_trades if t.get("reason") == "持有中"]
+                bt_trades = [t for t in bt_trades if t.get("reason") != "持有中"]
+
+                for sim_day in sorted(_sim_dates):
+                    sd_str = str(sim_day)
+
+                    # Build market data for this day from cache or live API
+                    _dmkt = {}
+                    if sd_str == trading_date and market_data:
+                        _dmkt = market_data
+                    elif sim_day in _cal_up_to_cache:
+                        _offset = len(_cal_up_to_cache) - 1 - _cal_up_to_cache.index(sim_day)
+                        for tk, cs in _cache.items():
+                            idx = len(cs["c"]) - 1 - _offset
+                            if 0 <= idx < len(cs["c"]):
+                                _dmkt[tk] = {"close":cs["c"][idx],"high":cs["h"][idx],"low":cs["l"][idx],"vol":cs["v"][idx]}
+                    if len(_dmkt) < 50:
+                        continue
+
+                    _top100 = sorted(_dmkt.keys(), key=lambda t: _dmkt[t]["vol"], reverse=True)[:100]
+
+                    # SELL
+                    _new_h = []
+                    for h in sim_holdings:
+                        tk = h["ticker"]
+                        if tk not in _dmkt:
+                            _new_h.append(h); continue
+                        bp = h["buy_price"]; cur = _dmkt[tk]["close"]
+                        ret = (cur/bp-1)*100 if bp > 0 else 0
+                        try: dh = sum(1 for d in _all_cal if date.fromisoformat(h["buy_date"]) < d <= sim_day)
+                        except: dh = 0
+                        pk = max(h.get("peak_price", bp), cur); h["peak_price"] = pk
+                        reason = None
+                        if dh < 1: _new_h.append(h); continue
+                        if ret <= _sp.get("stop_loss",-20): reason = f"停損 {ret:+.1f}%"
+                        if not reason and _sp.get("use_take_profit",1) and ret >= _sp.get("take_profit",80): reason = f"停利 +{ret:.1f}%"
+                        if not reason and _sp.get("trailing_stop",0)>0 and pk>bp*1.01 and (cur/pk-1)*100<=-_sp["trailing_stop"]: reason = f"移動停利 {(cur/pk-1)*100:.1f}%"
+                        if not reason and _sp.get("use_time_decay",0):
+                            hh=int(_sp.get("hold_days",30))//2
+                            if dh>=hh and ret<(dh-hh)*_sp.get("ret_per_day",0.5): reason="漸進停利"
+                        if not reason and _sp.get("use_profit_lock",0):
+                            pg=(pk/bp-1)*100
+                            if pg>=_sp.get("lock_trigger",30) and ret<_sp.get("lock_floor",10): reason="鎖利"
+                        if not reason and dh>=int(_sp.get("hold_days",30)): reason=f"到期{dh}天 {ret:+.1f}%"
+                        if reason:
+                            bt_trades.append({"ticker":tk,"name":h.get("name",""),"buy_price":bp,
+                                "sell_price":round(cur,2),"hold_days":dh,"return_pct":round(ret,1),
+                                "reason":reason,"buy_date":h["buy_date"],"sell_date":sd_str})
+                        else: _new_h.append(h)
+                    sim_holdings = _new_h
+
+                    # BUY
+                    if len(sim_holdings) < _max_pos:
+                        _held = {h["ticker"] for h in sim_holdings}
+                        _sigs = []
+                        for tk in _top100:
+                            if tk in _held or tk not in _cache: continue
+                            cs = _cache[tk]
+                            if sim_day not in _cal_up_to_cache: continue
+                            _off = len(_cal_up_to_cache)-1-_cal_up_to_cache.index(sim_day)
+                            _ei = len(cs["c"])-_off
+                            if _ei < 20: continue
+                            try:
+                                ind = compute_indicators(
+                                    _np.array(cs["c"][:_ei],dtype=_np.float64),
+                                    _np.array(cs["h"][:_ei],dtype=_np.float64),
+                                    _np.array(cs["l"][:_ei],dtype=_np.float64),
+                                    _np.array(cs["v"][:_ei],dtype=_np.float64))
+                                if ind and score_stock(ind,_sp) >= _buy_th:
+                                    _sigs.append({"tk":tk,"sc":score_stock(ind,_sp),"vol":_dmkt[tk]["vol"],
+                                        "name":_dmkt.get(tk,{}).get("name","")or tk,"price":_dmkt[tk]["close"]})
+                            except: continue
+                        if _sigs:
+                            _sigs.sort(key=lambda x:(x["sc"],x["vol"]),reverse=True)
+                            for s in _sigs[:_max_pos-len(sim_holdings)]:
+                                sim_holdings.append({"ticker":s["tk"],"name":s["name"],"buy_price":s["price"],
+                                    "buy_date":sd_str,"peak_price":s["price"],"sell_price":s["price"],
+                                    "hold_days":0,"return_pct":0,"reason":"持有中"})
+
+                # Update holding with latest prices
+                for h in sim_holdings:
+                    tk = h["ticker"]
+                    if market_data and tk in market_data:
+                        cur = market_data[tk]["close"]
+                        h["sell_price"] = round(cur,2)
+                        h["return_pct"] = round((cur/h["buy_price"]-1)*100,1) if h["buy_price"]>0 else 0
+                        try: h["hold_days"] = sum(1 for d in _all_cal if date.fromisoformat(h["buy_date"])<d<=date.fromisoformat(trading_date))
+                        except: pass
+
+                bt_trades = bt_trades + sim_holdings
+                bt_stats["end_date"] = trading_date
+                try:
+                    write_gist_file("backtest_results.json",{"stats":bt_stats,"trades":bt_trades},clear_cache=False)
+                except: pass
 
     if bt_stats:
         st.markdown(f"**回測期間**：{bt_stats.get('start_date', '')} ~ {bt_stats.get('end_date', '')}（{bt_stats.get('total_days', 0)} 交易日）")
