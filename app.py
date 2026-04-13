@@ -591,7 +591,7 @@ with tab3:
                 icon = "🟢" if ret > 0 else "🔴" if ret < 0 else "⚪"
                 trade_rows.append({
                     "": icon,
-                    "股票": t.get("ticker", ""),
+                    "股票": t.get("name", "") or t.get("ticker", ""),
                     "買入日": t.get("buy_date", ""),
                     "賣出日": t.get("sell_date", ""),
                     "買入價": t.get("buy_price", 0),
