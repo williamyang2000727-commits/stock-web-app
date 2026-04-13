@@ -1,5 +1,5 @@
 """
-龍蝦選股系統 Web App
+Yang's 選股系統 Web App
 Taiwan stock selection system - Streamlit dashboard
 """
 
@@ -19,8 +19,8 @@ def tw_today():
 
 # ── Page Config ──────────────────────────────────────────────
 st.set_page_config(
-    page_title="龍蝦選股系統",
-    page_icon="🦞",
+    page_title="Yang's 選股系統",
+    page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded",
 )
@@ -84,7 +84,7 @@ def authenticate():
         return True
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown("# 🦞 龍蝦選股系統")
+        st.markdown("# 📈 Yang's 選股系統")
         st.caption("Taiwan Stock Selection System")
         st.markdown("---")
         with st.form("login"):
@@ -162,7 +162,7 @@ with st.sidebar:
             del st.session_state[key]
         st.rerun()
     st.markdown("---")
-    st.caption("🦞 龍蝦選股系統 v1.0")
+    st.caption("📈 Yang's 選股系統 v1.0")
 
 # ── Load Strategy (auto-sync from GPU Gist) ──
 @st.cache_data(ttl=300)

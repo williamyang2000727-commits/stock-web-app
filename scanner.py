@@ -1,5 +1,5 @@
 """
-Live scanner for 龍蝦選股系統 Web App
+Live scanner for Yang's 選股系統 Web App
 Uses Gist history cache + TWSE/TPEx live data (zero yfinance)
 """
 
