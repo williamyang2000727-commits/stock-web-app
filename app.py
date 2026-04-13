@@ -718,24 +718,24 @@ with tab3:
         _max_loss = min(_rets) if _rets else 0
         _avg_hold = sum(t.get("hold_days", 0) for t in _completed) / len(_completed) if _completed else 0
 
-        # CAGR: compound annual growth rate
-        _compound = 1.0
-        for r in _rets:
-            _compound *= (1 + r / 100)
+        # CAGR: use simple total return (matching GPU sum method)
+        # Each trade uses 1/max_positions of capital
+        _pos_size = 1 / max(int(strategy_params.get("max_positions", 2)), 1)
+        _portfolio_growth = 1 + (_bt_total * _pos_size) / 100
         try:
             _start_d = date.fromisoformat(bt_stats.get("start_date", "2022-01-01"))
             _end_d = date.fromisoformat(bt_stats.get("end_date", str(tw_today())))
             _years = max((_end_d - _start_d).days / 365.25, 0.1)
-            _cagr = (_compound ** (1 / _years) - 1) * 100
+            _cagr = (_portfolio_growth ** (1 / _years) - 1) * 100 if _portfolio_growth > 0 else 0
         except:
             _cagr = 0
 
-        # Max Drawdown: track equity curve
+        # Max Drawdown: track equity curve (scaled by position size)
         _equity = 1.0
         _peak_eq = 1.0
         _max_dd = 0
         for r in _rets:
-            _equity *= (1 + r / 100)
+            _equity *= (1 + r * _pos_size / 100)
             _peak_eq = max(_peak_eq, _equity)
             _dd = (_equity / _peak_eq - 1) * 100
             _max_dd = min(_max_dd, _dd)
