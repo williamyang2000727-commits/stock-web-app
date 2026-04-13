@@ -116,9 +116,15 @@ def get_market_data():
 
 
 # ── Helper ───────────────────────────────────────────────────
-def next_trading_day(scan_date_str):
+def next_trading_day(scan_date_str, cal=None):
     try:
         d = date.fromisoformat(scan_date_str)
+        # Use trading calendar if available (skips holidays)
+        if cal:
+            future = sorted(td for td in cal if td > d)
+            if future:
+                return future[0]
+        # Fallback: skip weekends only
         nd = d + timedelta(days=1)
         while nd.weekday() >= 5:
             nd += timedelta(days=1)
@@ -206,83 +212,66 @@ def _read_history_gist():
 history_cache = _read_history_gist()
 cache_date = history_cache.get("updated", "") if history_cache else ""
 
-if history_cache and cache_date and market_data and trading_date > cache_date:
-    stocks = history_cache.get("stocks", {})
-    for ticker, hist in stocks.items():
-        if ticker in market_data:
-            info = market_data[ticker]
-            hist["c"] = hist["c"][-59:] + [info["close"]]
-            hist["h"] = hist["h"][-59:] + [info.get("high", info["close"])]
-            hist["l"] = hist["l"][-59:] + [info.get("low", info["close"])]
-            hist["v"] = hist["v"][-59:] + [info["vol"]]
-    history_cache["updated"] = trading_date
-    try:
-        headers = {"Authorization": f"token {GITHUB_TOKEN}"}
-        payload = {"files": {"history_cache.json": {"content": json.dumps(history_cache, ensure_ascii=False)}}}
-        requests.patch(f"https://api.github.com/gists/{HISTORY_GIST_ID}", headers=headers, json=payload, timeout=60)
-    except Exception:
-        pass
-
 # ── Indicator States ──
 indicator_states = read_gist_file("indicator_state.json")
 state_date = indicator_states.get("updated", "") if indicator_states else ""
 
-# ── Update states if new trading day (web self-maintains, zero Mac) ──
+# ── Update states + cache if new trading day (MUST update states BEFORE cache) ──
 if indicator_states and market_data and trading_date and trading_date > state_date:
     import numpy as np
     _states = indicator_states.get("states", {})
-    _cache = history_cache.get("stocks", {}) if history_cache else {}
+    _pre_cache = history_cache.get("stocks", {}) if history_cache else {}  # PRE-mutation cache
     _updated = False
-    for tk, st in _states.items():
-        if tk not in market_data or tk not in _cache:
+    for _tk, _sv in _states.items():  # FIX #5: renamed from 'st' to '_sv' (avoid shadowing streamlit)
+        if _tk not in market_data or _tk not in _pre_cache:
             continue
-        info = market_data[tk]
-        cs = _cache[tk]
-        if not cs.get("c"):
+        _info = market_data[_tk]
+        _cs = _pre_cache[_tk]
+        if not _cs.get("c"):
             continue
-        prev_c = cs["c"][-1]
-        new_c = info["close"]
-        ch = new_c - prev_c
+        _prev_c = _cs["c"][-1]  # FIX #14: read BEFORE cache mutation (below)
+        _new_c = _info["close"]
+        _ch = _new_c - _prev_c
         # RSI
-        st["rsi_ag"] = round((st["rsi_ag"] * 13 + max(ch, 0)) / 14, 6)
-        st["rsi_al"] = round((st["rsi_al"] * 13 + max(-ch, 0)) / 14, 6)
+        _sv["rsi_ag"] = round((_sv["rsi_ag"] * 13 + max(_ch, 0)) / 14, 6)
+        _sv["rsi_al"] = round((_sv["rsi_al"] * 13 + max(-_ch, 0)) / 14, 6)
         # MACD
-        st["ema12"] = round(st["ema12"] * (1 - 2/13) + new_c * 2/13, 4)
-        st["ema26"] = round(st["ema26"] * (1 - 2/27) + new_c * 2/27, 4)
-        new_ml = st["ema12"] - st["ema26"]
-        st["mh_prev"] = st["mh"]
-        st["macd_sig"] = round(st["macd_sig"] * (1 - 2/10) + new_ml * 2/10, 4)
-        st["mh"] = round(new_ml - st["macd_sig"], 4)
+        _sv["ema12"] = round(_sv["ema12"] * (1 - 2/13) + _new_c * 2/13, 4)
+        _sv["ema26"] = round(_sv["ema26"] * (1 - 2/27) + _new_c * 2/27, 4)
+        _new_ml = _sv["ema12"] - _sv["ema26"]
+        _sv["mh_prev"] = _sv["mh"]
+        _sv["macd_sig"] = round(_sv["macd_sig"] * (1 - 2/10) + _new_ml * 2/10, 4)
+        _sv["mh"] = round(_new_ml - _sv["macd_sig"], 4)
         # ATR
-        new_tr = max(info.get("high", new_c) - info.get("low", new_c),
-                     abs(info.get("high", new_c) - prev_c),
-                     abs(info.get("low", new_c) - prev_c))
-        st["atr14"] = round((st["atr14"] * 13 + new_tr) / 14, 4)
+        _new_tr = max(_info.get("high", _new_c) - _info.get("low", _new_c),
+                      abs(_info.get("high", _new_c) - _prev_c),
+                      abs(_info.get("low", _new_c) - _prev_c))
+        _sv["atr14"] = round((_sv["atr14"] * 13 + _new_tr) / 14, 4)
         # ADX
-        prev_h = cs["h"][-1] if cs.get("h") else new_c
-        prev_l = cs["l"][-1] if cs.get("l") else new_c
-        up = info.get("high", new_c) - prev_h
-        dn = prev_l - info.get("low", new_c)
-        pdm_v = up if up > dn and up > 0 else 0
-        mdm_v = dn if dn > up and dn > 0 else 0
-        st["adx_a14"] = round((st["adx_a14"] * 13 + new_tr) / 14, 4)
-        st["adx_sp"] = round((st["adx_sp"] * 13 + pdm_v) / 14, 4)
-        st["adx_sm"] = round((st["adx_sm"] * 13 + mdm_v) / 14, 4)
-        pdi = st["adx_sp"] / st["adx_a14"] * 100 if st["adx_a14"] > 0 else 0
-        mdi = st["adx_sm"] / st["adx_a14"] * 100 if st["adx_a14"] > 0 else 0
-        dx = abs(pdi - mdi) / (pdi + mdi) * 100 if pdi + mdi > 0 else 0
-        st["adx_val"] = round((st["adx_val"] * 13 + dx) / 14, 4)
-        # KD
-        lo_arr = cs["l"][-9:] + [info.get("low", new_c)]
-        hi_arr = cs["h"][-9:] + [info.get("high", new_c)]
-        lo9 = min(lo_arr); hi9 = max(hi_arr)
-        rsv = (new_c - lo9) / (hi9 - lo9) * 100 if hi9 > lo9 else 50
-        st["kd_k_prev"] = st["kd_k"]
-        st["kd_d_prev"] = st["kd_d"]
-        st["kd_k"] = round(st["kd_k"] * 2/3 + rsv / 3, 4)
-        st["kd_d"] = round(st["kd_d"] * 2/3 + st["kd_k"] / 3, 4)
+        _prev_h = _cs["h"][-1] if _cs.get("h") else _new_c
+        _prev_l = _cs["l"][-1] if _cs.get("l") else _new_c
+        _up = _info.get("high", _new_c) - _prev_h
+        _dn = _prev_l - _info.get("low", _new_c)
+        _pdm = _up if _up > _dn and _up > 0 else 0
+        _mdm = _dn if _dn > _up and _dn > 0 else 0
+        _sv["adx_a14"] = round((_sv["adx_a14"] * 13 + _new_tr) / 14, 4)
+        _sv["adx_sp"] = round((_sv["adx_sp"] * 13 + _pdm) / 14, 4)
+        _sv["adx_sm"] = round((_sv["adx_sm"] * 13 + _mdm) / 14, 4)
+        _pdi = _sv["adx_sp"] / _sv["adx_a14"] * 100 if _sv["adx_a14"] > 0 else 0
+        _mdi = _sv["adx_sm"] / _sv["adx_a14"] * 100 if _sv["adx_a14"] > 0 else 0
+        _dx = abs(_pdi - _mdi) / (_pdi + _mdi) * 100 if _pdi + _mdi > 0 else 0
+        _sv["adx_val"] = round((_sv["adx_val"] * 13 + _dx) / 14, 4)
+        # KD (use PRE-mutation cache for lo/hi arrays)
+        _lo_arr = _cs["l"][-9:] + [_info.get("low", _new_c)]
+        _hi_arr = _cs["h"][-9:] + [_info.get("high", _new_c)]
+        _rsv = (_new_c - min(_lo_arr)) / (max(_hi_arr) - min(_lo_arr)) * 100 if max(_hi_arr) > min(_lo_arr) else 50
+        _sv["kd_k_prev"] = _sv["kd_k"]
+        _sv["kd_d_prev"] = _sv["kd_d"]
+        _sv["kd_k"] = round(_sv["kd_k"] * 2/3 + _rsv / 3, 4)
+        _sv["kd_d"] = round(_sv["kd_d"] * 2/3 + _sv["kd_k"] / 3, 4)
         _updated = True
 
+    # Save updated states to Gist
     if _updated:
         indicator_states["updated"] = trading_date
         try:
@@ -291,6 +280,25 @@ if indicator_states and market_data and trading_date and trading_date > state_da
                 json={"files": {"indicator_state.json": {"content": json.dumps(indicator_states, ensure_ascii=False)}}}, timeout=30)
         except Exception:
             pass
+
+# Now update history cache AFTER states (FIX #14: states read pre-mutation data)
+if history_cache and cache_date and market_data and trading_date > cache_date:
+    _stocks = history_cache.get("stocks", {})
+    for _tk, _hist in _stocks.items():
+        if _tk in market_data:
+            _info = market_data[_tk]
+            _hist["c"] = _hist["c"][-79:] + [_info["close"]]
+            _hist["h"] = _hist["h"][-79:] + [_info.get("high", _info["close"])]
+            _hist["l"] = _hist["l"][-79:] + [_info.get("low", _info["close"])]
+            _hist["v"] = _hist["v"][-79:] + [_info["vol"]]
+    history_cache["updated"] = trading_date
+    try:
+        _h = {"Authorization": f"token {GITHUB_TOKEN}"}
+        _payload = {"files": {"history_cache.json": {"content": json.dumps(history_cache, ensure_ascii=False)}}}
+        requests.patch(f"https://api.github.com/gists/{HISTORY_GIST_ID}", headers=_h, json=_payload, timeout=60)
+        st.cache_data.clear()  # FIX #6: clear cache after write so next load reads updated version
+    except Exception:
+        pass
 
 # ── Live Scan (every load, uses states = exact results) ──
 scan = None
@@ -324,9 +332,11 @@ user_sell_signals = []
 if user_holdings and strategy_params and market_data:
     try:
         from scanner import check_sell_signals
+        _holdings_before = json.dumps(user_holdings)
         user_sell_signals = check_sell_signals(user_holdings, strategy_params, market_data, history_cache, trading_cal)
-        # Save updated peak_price (don't clear cache, just persist)
-        save_user_holdings(username, user_holdings, clear_cache=False)
+        # Only save if peak_price actually changed (avoid unnecessary Gist writes)
+        if json.dumps(user_holdings) != _holdings_before:
+            save_user_holdings(username, user_holdings, clear_cache=False)
     except Exception:
         pass
 
@@ -341,7 +351,7 @@ tab0, tab1, tab2 = st.tabs([signal_label, "📊 買入排行", "💼 持倉管�
 # ══════════════════════════════════════════════════════════════
 with tab0:
     if signal_count > 0:
-        nd = next_trading_day(scan_date)
+        nd = next_trading_day(scan_date, trading_cal)
         nd_str = nd.strftime("%m/%d")
         wd = ["一", "二", "三", "四", "五", "六", "日"]
 
