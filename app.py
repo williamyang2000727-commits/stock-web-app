@@ -326,6 +326,15 @@ def _get_trading_cal():
 
 trading_cal = _get_trading_cal()
 
+# Fallback: if TWSE calendar fails (cloud IP blocked), use all weekdays
+if not trading_cal:
+    _d = date(2025, 1, 1)
+    trading_cal = set()
+    while _d <= tw_today():
+        if _d.weekday() < 5:
+            trading_cal.add(_d)
+        _d += timedelta(days=1)
+
 # Sell signals: live tracking using strategy sell conditions
 user_sell_signals = []
 if user_holdings and strategy_params and market_data:
