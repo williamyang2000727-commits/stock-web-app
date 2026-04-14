@@ -701,7 +701,14 @@ with tab3:
                 except: pass
 
     if bt_stats:
-        st.markdown(f"**回測期間**：{bt_stats.get('start_date', '')} ~ {bt_stats.get('end_date', '')}（{bt_stats.get('total_days', 0)} 交易日）")
+        # Compute actual trading days from calendar
+        try:
+            _sd = date.fromisoformat(bt_stats.get('start_date', ''))
+            _ed = date.fromisoformat(bt_stats.get('end_date', ''))
+            _total_days = sum(1 for d in trading_cal if _sd <= d <= _ed) if trading_cal else bt_stats.get('total_days', 0)
+        except:
+            _total_days = bt_stats.get('total_days', 0)
+        st.markdown(f"**回測期間**：{bt_stats.get('start_date', '')} ~ {bt_stats.get('end_date', '')}（{_total_days} 交易日）")
         st.markdown("---")
 
         # Compute all stats from trades
