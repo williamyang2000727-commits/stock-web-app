@@ -701,11 +701,20 @@ with tab3:
                 except: pass
 
     if bt_stats:
-        # Compute trading days (calendar only covers 3 months, use approximation for full period)
+        # Full trading calendar for backtest period (cached 7 days)
+        @st.cache_data(ttl=604800, show_spinner=False)
+        def _get_full_cal():
+            from scanner import fetch_trading_calendar
+            return fetch_trading_calendar(months=48)  # 4 years
+
+        _full_cal = _get_full_cal()
         try:
             _sd = date.fromisoformat(bt_stats.get('start_date', ''))
             _ed = date.fromisoformat(bt_stats.get('end_date', ''))
-            _total_days = int((_ed - _sd).days * 5 / 7)
+            if _full_cal:
+                _total_days = sum(1 for d in _full_cal if _sd <= d <= _ed)
+            else:
+                _total_days = int((_ed - _sd).days * 5 / 7)
         except:
             _total_days = bt_stats.get('total_days', 0)
         st.markdown(f"**回測期間**：{bt_stats.get('start_date', '')} ~ {bt_stats.get('end_date', '')}（{_total_days} 交易日）")

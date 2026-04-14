@@ -445,12 +445,13 @@ def run_scan(params, held_tickers=None, history_cache=None, indicator_states=Non
     }
 
 
-def fetch_trading_calendar():
-    """Fetch exact trading dates from TWSE (last 3 months, using 2330 as reference)."""
+def fetch_trading_calendar(months=3):
+    """Fetch exact trading dates from TWSE (using 2330 as reference)."""
     from datetime import date as _d
+    import time as _time
     dates = set()
     today = datetime.now(TW_TZ).date()
-    for offset in range(3):
+    for offset in range(months):
         m = today.month - offset
         y = today.year
         while m <= 0:
@@ -465,6 +466,8 @@ def fetch_trading_calendar():
             for row in r.json().get("data", []):
                 parts = row[0].split("/")
                 dates.add(_d(int(parts[0]) + 1911, int(parts[1]), int(parts[2])))
+            if months > 6:
+                _time.sleep(0.2)  # Rate limit for large fetches
         except Exception:
             pass
     return dates
