@@ -193,6 +193,10 @@ try:
 except Exception:
     market_data, trading_date = {}, ""
 
+# Fallback trading_date if TWSE fails
+if not trading_date:
+    trading_date = str(tw_today())
+
 # ── History Cache (separate Gist for large file) ──
 @st.cache_data(ttl=300)
 def _read_history_gist():
