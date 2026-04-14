@@ -603,17 +603,16 @@ with tab3:
             _max_pos = int(_sp.get("max_positions", 2))
             _buy_th = _sp.get("buy_threshold", 10)
 
-            # Only simulate TODAY (indicator states only accurate for current day)
-            # For gaps > 1 day, need GPU or Mac to fill correctly
+            # Gap handling: sell checks ALL days, buy only on TODAY
+            # (indicator states only accurate for today, but sell is price-based)
             _all_cal = sorted(trading_cal)
-            _sim_dates = []
+            _sim_dates = []  # (date, can_buy)
             try:
                 _bt_end_d = date.fromisoformat(bt_end)
                 _gap = [d for d in _all_cal if _bt_end_d < d <= date.fromisoformat(trading_date)]
-                if len(_gap) <= 1:
-                    _sim_dates = _gap  # 1 day gap: simulate (states accurate)
-                else:
-                    _sim_dates = _gap[-1:]  # Multi-day gap: only simulate today
+                for _gd in _gap:
+                    _is_today = (str(_gd) == trading_date)
+                    _sim_dates.append((_gd, _is_today))  # Only buy on today
             except:
                 pass
 
@@ -628,7 +627,7 @@ with tab3:
                 sim_holdings = [dict(t) for t in bt_trades if t.get("reason") == "持有中"]
                 bt_trades = [t for t in bt_trades if t.get("reason") != "持有中"]
 
-                for sim_day in sorted(_sim_dates):
+                for sim_day, _can_buy in _sim_dates:
                     sd_str = str(sim_day)
 
                     # Build market data for this day from cache or live API
@@ -676,8 +675,8 @@ with tab3:
                         else: _new_h.append(h)
                     sim_holdings = _new_h
 
-                    # BUY
-                    if len(sim_holdings) < _max_pos:
+                    # BUY (only on today - indicator states accurate for today only)
+                    if _can_buy and len(sim_holdings) < _max_pos:
                         _held = {h["ticker"] for h in sim_holdings}
                         _sigs = []
                         for tk in _top100:
