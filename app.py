@@ -324,7 +324,13 @@ def _get_trading_cal():
     from scanner import fetch_trading_calendar
     return fetch_trading_calendar()
 
+@st.cache_data(ttl=604800, show_spinner=False)
+def _get_full_trading_cal():
+    from scanner import fetch_trading_calendar
+    return fetch_trading_calendar(months=48)
+
 trading_cal = _get_trading_cal()
+_full_trading_cal = _get_full_trading_cal()
 
 # Fallback: if TWSE calendar fails (cloud IP blocked), use all weekdays
 if not trading_cal:
@@ -701,18 +707,11 @@ with tab3:
                 except: pass
 
     if bt_stats:
-        # Full trading calendar for backtest period (cached 7 days)
-        @st.cache_data(ttl=604800, show_spinner=False)
-        def _get_full_cal():
-            from scanner import fetch_trading_calendar
-            return fetch_trading_calendar(months=48)  # 4 years
-
-        _full_cal = _get_full_cal()
         try:
             _sd = date.fromisoformat(bt_stats.get('start_date', ''))
             _ed = date.fromisoformat(bt_stats.get('end_date', ''))
-            if _full_cal:
-                _total_days = sum(1 for d in _full_cal if _sd <= d <= _ed)
+            if _full_trading_cal:
+                _total_days = sum(1 for d in _full_trading_cal if _sd <= d <= _ed)
             else:
                 _total_days = int((_ed - _sd).days * 5 / 7)
         except:
