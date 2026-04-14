@@ -350,6 +350,11 @@ def main():
                 if not reason and sp.get("use_take_profit", 1) and ret >= sp.get("take_profit", 80): reason = f"停利 +{ret:.1f}%"
                 if not reason and sp.get("trailing_stop", 0) > 0 and pk > bp * 1.01:
                     if (cur / pk - 1) * 100 <= -sp["trailing_stop"]: reason = "移動停利"
+                if not reason and int(sp.get("sell_below_ma", 0)) > 0 and tk in cache:
+                    cs_c = cache[tk]["c"] if tk in cache else []
+                    if len(cs_c) > 60:
+                        ma60 = sum(cs_c[-61:-1]) / 60
+                        if bp >= ma60 and cur < ma60: reason = "跌破MA60"
                 if not reason and sp.get("use_time_decay", 0):
                     hh = int(sp.get("hold_days", 30)) // 2
                     if dh >= hh and ret < (dh - hh) * sp.get("ret_per_day", 0.5): reason = "漸進停利"

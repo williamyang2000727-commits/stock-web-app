@@ -555,15 +555,7 @@ def check_sell_signals(holdings, params, market_data, history_cache, trading_dat
             if days_held >= stag_days and ret < stag_min:
                 reason = f"停滯出場！持有 {days_held} 交易日報酬僅 {ret:+.1f}%"
 
-        # 6. Profit lock (鎖利) — peak must have actually reached trigger
-        if reason is None and sp.get("use_profit_lock", 0):
-            lt = sp.get("lock_trigger", 30)
-            lf = sp.get("lock_floor", 10)
-            peak_gain = (peak_price / buy_price - 1) * 100
-            if peak_gain >= lt and ret < lf:
-                reason = f"鎖利出場！曾漲 +{peak_gain:.1f}% 但跌回 +{ret:.1f}%（鎖利線 +{lf}%）"
-
-        # 7. Time decay (gradual profit requirement) — use trading days
+        # 6. Time decay (gradual profit requirement) — use trading days (GPU order: before profit lock)
         if reason is None and sp.get("use_time_decay", 0):
             rpd = sp.get("ret_per_day", 0.5)
             hd_half = int(hold_days) // 2
@@ -571,6 +563,14 @@ def check_sell_signals(holdings, params, market_data, history_cache, trading_dat
                 min_req = (days_held - hd_half) * rpd
                 if ret < min_req:
                     reason = f"漸進停利！持有 {days_held} 交易日報酬 {ret:+.1f}%，低於期望 +{min_req:.1f}%"
+
+        # 7. Profit lock (鎖利) — peak must have actually reached trigger
+        if reason is None and sp.get("use_profit_lock", 0):
+            lt = sp.get("lock_trigger", 30)
+            lf = sp.get("lock_floor", 10)
+            peak_gain = (peak_price / buy_price - 1) * 100
+            if peak_gain >= lt and ret < lf:
+                reason = f"鎖利出場！曾漲 +{peak_gain:.1f}% 但跌回 +{ret:.1f}%（鎖利線 +{lf}%）"
 
         # 8. Max hold days — use trading days
         if reason is None and days_held >= hold_days:
