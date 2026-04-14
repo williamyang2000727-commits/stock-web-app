@@ -601,23 +601,19 @@ with tab3:
             _max_pos = int(_sp.get("max_positions", 2))
             _buy_th = _sp.get("buy_threshold", 10)
 
-            # Find trading days to simulate
+            # Only simulate if gap is 1 trading day (states are accurate)
+            # For larger gaps, user should re-run backtest_to_web.py on Windows
             _all_cal = sorted(trading_cal)
+            _sim_dates = []
             try:
                 _bt_end_d = date.fromisoformat(bt_end)
-                _cache_end_d = date.fromisoformat(_cache_updated) if _cache_updated else _bt_end_d
-                _sim_dates = [d for d in _all_cal if _bt_end_d < d <= _cache_end_d]
+                _gap_days = [d for d in _all_cal if _bt_end_d < d <= date.fromisoformat(trading_date)]
+                if len(_gap_days) <= 2:
+                    _sim_dates = _gap_days  # Small gap: simulate
+                else:
+                    _sim_dates = _gap_days[-1:]  # Large gap: only simulate today
             except:
-                _sim_dates = []
-
-            # Add today if TWSE has newer data than cache
-            if trading_date > _cache_updated:
-                try:
-                    _td = date.fromisoformat(trading_date)
-                    if _td not in _sim_dates:
-                        _sim_dates.append(_td)
-                except:
-                    pass
+                pass
 
             # Map cache dates: last entry = cache_updated, previous = previous trading day
             _cal_up_to_cache = [d for d in _all_cal if d <= _cache_end_d] if _cache_updated else []
