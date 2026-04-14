@@ -366,9 +366,10 @@ def main():
                     new_h.append(h_item)
             sim_holdings = new_h
 
-            # Buy check
+            # Buy check (exclude stocks just sold today)
+            _just_sold = {t["ticker"] for t in bt_trades if t.get("sell_date") == trading_date}
             if len(sim_holdings) < max_pos and signals:
-                held_tks = {h_item["ticker"] for h_item in sim_holdings}
+                held_tks = {h_item["ticker"] for h_item in sim_holdings} | _just_sold
                 for sig in signals[:1]:
                     if sig["ticker"] not in held_tks:
                         sim_holdings.append({
