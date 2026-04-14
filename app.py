@@ -595,6 +595,68 @@ with tab3:
     bt_stats = backtest.get("stats", {}) if backtest else {}
     bt_trades = backtest.get("trades", []) if backtest else []
 
+    # === 換股狀態 ===
+    _bt_holding = [t for t in bt_trades if t.get("reason") == "持有中"]
+    if _bt_holding and strategy_params and market_data:
+        st.markdown("#### 換股狀態")
+        _has_swap = False
+        _sp = strategy_params
+
+        for _bh in _bt_holding:
+            _tk = _bh.get("ticker", "")
+            _bp = _bh.get("buy_price", 0)
+            _nm = _bh.get("name", _tk)
+            if _tk not in market_data or _bp <= 0:
+                continue
+            _cur = market_data[_tk]["close"]
+            _ret = (_cur / _bp - 1) * 100
+            try:
+                _dh = sum(1 for d in trading_cal if date.fromisoformat(_bh["buy_date"]) < d <= date.fromisoformat(scan_date)) if trading_cal else 0
+            except:
+                _dh = 0
+            _pk = max(_bh.get("peak_price", _bp), _cur)
+
+            _reason = None
+            if _dh >= 1:
+                if _ret <= _sp.get("stop_loss", -20): _reason = f"停損 {_ret:+.1f}%"
+                if not _reason and _sp.get("use_take_profit", 1) and _ret >= _sp.get("take_profit", 80): _reason = f"停利 +{_ret:.1f}%"
+                if not _reason and _sp.get("trailing_stop", 0) > 0 and _pk > _bp * 1.01:
+                    if (_cur / _pk - 1) * 100 <= -_sp["trailing_stop"]: _reason = f"移動停利 {(_cur/_pk-1)*100:.1f}%"
+                if not _reason and _sp.get("use_time_decay", 0):
+                    _hh = int(_sp.get("hold_days", 30)) // 2
+                    if _dh >= _hh and _ret < (_dh - _hh) * _sp.get("ret_per_day", 0.5): _reason = "漸進停利"
+                if not _reason and _sp.get("use_profit_lock", 0):
+                    _pg = (_pk / _bp - 1) * 100
+                    if _pg >= _sp.get("lock_trigger", 30) and _ret < _sp.get("lock_floor", 10): _reason = "鎖利"
+                if not _reason and _dh >= int(_sp.get("hold_days", 30)): _reason = f"到期{_dh}天"
+
+            if _reason:
+                _has_swap = True
+                _nd = next_trading_day(scan_date, trading_cal)
+                _nd_str = _nd.strftime("%m/%d")
+                _wd = ["一", "二", "三", "四", "五", "六", "日"]
+
+                # Find buy candidate (#1 excluding held)
+                _held_tks = {h.get("ticker") for h in _bt_holding}
+                _buy_candidates = [s for s in scan.get("buy_signals", []) if s.get("ticker") not in _held_tks] if scan else []
+                _buy1 = _buy_candidates[0] if _buy_candidates else None
+
+                st.error(
+                    f"**📤 賣出** {_nm}（{_tk}）\n\n"
+                    f"原因：{_reason}｜報酬 {_ret:+.1f}%｜持有 {_dh} 交易日\n\n"
+                    f"訊號日：{scan_date}（D）→ **{_nd_str}（{_wd[_nd.weekday()]}）執行（D+1）**"
+                )
+                if _buy1:
+                    st.success(
+                        f"**🎯 買入** {_buy1.get('name', '')}（{_buy1.get('ticker', '')}）\n\n"
+                        f"評分 {int(_buy1.get('score', 0))} 分｜收盤價 {_buy1.get('close', 0)}\n\n"
+                        f"**{_nd_str}（{_wd[_nd.weekday()]}）13:25 前買入**"
+                    )
+
+        if not _has_swap:
+            st.info(f"目前沒有要換股（{len(_bt_holding)} 檔持有中，無賣出訊號）")
+        st.markdown("---")
+
     # === Auto-extend backtest from GPU end to today ===
     bt_end = bt_stats.get("end_date", "")
     if bt_trades and trading_date and bt_end and trading_date > bt_end and trading_cal and history_cache:
