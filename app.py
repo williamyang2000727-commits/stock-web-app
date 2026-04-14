@@ -616,6 +616,10 @@ with tab3:
                 pass
 
             # Map cache dates: last entry = cache_updated, previous = previous trading day
+            try:
+                _cache_end_d = date.fromisoformat(_cache_updated)
+            except:
+                _cache_end_d = date.fromisoformat(trading_date)
             _cal_up_to_cache = [d for d in _all_cal if d <= _cache_end_d] if _cache_updated else []
 
             if _sim_dates and (_cal_up_to_cache or market_data):
