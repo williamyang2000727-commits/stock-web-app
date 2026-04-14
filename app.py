@@ -28,6 +28,7 @@ st.set_page_config(
 GITHUB_TOKEN = st.secrets["github_token"]
 DATA_GIST_ID = st.secrets["data_gist_id"]
 HISTORY_GIST_ID = st.secrets.get("history_gist_id", DATA_GIST_ID)
+STATE_GIST_ID = st.secrets.get("state_gist_id", DATA_GIST_ID)
 GPU_GIST_ID = "c1bef892d33589baef2142ce250d18c2"  # GPU evolution pushes here
 
 
@@ -211,8 +212,23 @@ def _read_history_gist():
 history_cache = _read_history_gist()
 cache_date = history_cache.get("updated", "") if history_cache else ""
 
-# ── Indicator States ──
-indicator_states = read_gist_file("indicator_state.json")
+# ── Indicator States (separate Gist for large file) ──
+@st.cache_data(ttl=300)
+def _read_state_gist():
+    headers = {"Authorization": f"token {GITHUB_TOKEN}"}
+    try:
+        r = requests.get(f"https://api.github.com/gists/{STATE_GIST_ID}", headers=headers, timeout=15)
+        if r.status_code == 200:
+            fdata = list(r.json().get("files", {}).values())[0]
+            if fdata.get("truncated"):
+                raw = requests.get(fdata["raw_url"], headers=headers, timeout=60)
+                return json.loads(raw.text)
+            return json.loads(fdata.get("content", "{}"))
+    except Exception:
+        pass
+    return {}
+
+indicator_states = _read_state_gist()
 state_date = indicator_states.get("updated", "") if indicator_states else ""
 
 # ── Update states + cache if new trading day (MUST update states BEFORE cache) ──
@@ -275,7 +291,7 @@ if indicator_states and market_data and trading_date and trading_date > state_da
         indicator_states["updated"] = trading_date
         try:
             _h = {"Authorization": f"token {GITHUB_TOKEN}"}
-            requests.patch(f"https://api.github.com/gists/{DATA_GIST_ID}", headers=_h,
+            requests.patch(f"https://api.github.com/gists/{STATE_GIST_ID}", headers=_h,
                 json={"files": {"indicator_state.json": {"content": json.dumps(indicator_states, ensure_ascii=False)}}}, timeout=30)
         except Exception:
             pass
