@@ -588,10 +588,9 @@ with tab3:
     bt_stats = backtest.get("stats", {}) if backtest else {}
     bt_trades = backtest.get("trades", []) if backtest else []
 
-    # === Auto-extend backtest day-by-day to today (using history cache) ===
-    if bt_trades and trading_date:
-        bt_end = bt_stats.get("end_date", "")
-        if trading_date > bt_end and trading_cal and history_cache:
+    # === Auto-extend DISABLED: GPU data is ground truth, don't modify ===
+    # To update backtest, re-run backtest_to_web.py on Windows
+    if False and bt_trades and trading_date:
             import numpy as _np
             from scanner import compute_indicators, score_stock
 
