@@ -601,7 +601,7 @@ with tab3:
         st.markdown("#### 換股狀態")
         _has_swap = False
         _sp = strategy_params
-        _already_recommended = set()  # Track recommended buys (avoid duplicates)
+        _sell_list = []  # Collect all sells first
 
         for _bh in _bt_holding:
             _tk = _bh.get("ticker", "")
@@ -632,29 +632,38 @@ with tab3:
                 if not _reason and _dh >= int(_sp.get("hold_days", 30)): _reason = f"到期{_dh}天"
 
             if _reason:
-                _has_swap = True
-                _nd = next_trading_day(scan_date, trading_cal)
-                _nd_str = _nd.strftime("%m/%d")
-                _wd = ["一", "二", "三", "四", "五", "六", "日"]
+                _sell_list.append({"name": _nm, "ticker": _tk, "reason": _reason, "ret": _ret, "dh": _dh})
 
-                # Find buy candidate (exclude held + already recommended)
-                _held_tks = {h.get("ticker") for h in _bt_holding} | _already_recommended
-                _buy_candidates = [s for s in scan.get("buy_signals", []) if s.get("ticker") not in _held_tks] if scan else []
-                _buy1 = _buy_candidates[0] if _buy_candidates else None
-                if _buy1:
-                    _already_recommended.add(_buy1.get("ticker"))
+        if _sell_list:
+            _has_swap = True
+            _nd = next_trading_day(scan_date, trading_cal)
+            _nd_str = _nd.strftime("%m/%d")
+            _wd = ["一", "二", "三", "四", "五", "六", "日"]
 
+            # Show all sells
+            for _s in _sell_list:
                 st.error(
-                    f"**📤 賣出** {_nm}（{_tk}）\n\n"
-                    f"原因：{_reason}｜報酬 {_ret:+.1f}%｜持有 {_dh} 交易日\n\n"
-                    f"訊號日：{scan_date}（D）→ **{_nd_str}（{_wd[_nd.weekday()]}）執行（D+1）**"
+                    f"**📤 賣出** {_s['name']}（{_s['ticker']}）\n\n"
+                    f"原因：{_s['reason']}｜報酬 {_s['ret']:+.1f}%｜持有 {_s['dh']} 交易日"
                 )
-                if _buy1:
-                    st.success(
-                        f"**🎯 買入** {_buy1.get('name', '')}（{_buy1.get('ticker', '')}）\n\n"
-                        f"評分 {int(_buy1.get('score', 0))} 分｜收盤價 {_buy1.get('close', 0)}\n\n"
-                        f"**{_nd_str}（{_wd[_nd.weekday()]}）13:25 前買入**"
-                    )
+
+            # Buy: only #1 on D+1 (GPU rule: 1 per day)
+            _sold_tks = {s["ticker"] for s in _sell_list}
+            _held_tks = {h.get("ticker") for h in _bt_holding} - _sold_tks
+            _buy_candidates = [s for s in scan.get("buy_signals", []) if s.get("ticker") not in _held_tks and s.get("ticker") not in _sold_tks] if scan else []
+            _buy1 = _buy_candidates[0] if _buy_candidates else None
+
+            st.markdown(f"**訊號日：{scan_date}（D）→ {_nd_str}（{_wd[_nd.weekday()]}）執行（D+1）**")
+
+            if _buy1:
+                st.success(
+                    f"**🎯 D+1 買入** {_buy1.get('name', '')}（{_buy1.get('ticker', '')}）\n\n"
+                    f"評分 {int(_buy1.get('score', 0))} 分｜收盤價 {_buy1.get('close', 0)}｜**{_nd_str}（{_wd[_nd.weekday()]}）13:25 前買入**"
+                )
+
+            if len(_sell_list) > 1:
+                _nd2 = next_trading_day(str(_nd), trading_cal)
+                st.info(f"第 2 個空位等 {_nd2.strftime('%m/%d')}（{_wd[_nd2.weekday()]}）掃描後再買入")
 
         if not _has_swap:
             st.info(f"目前沒有要換股（{len(_bt_holding)} 檔持有中，無賣出訊號）")
