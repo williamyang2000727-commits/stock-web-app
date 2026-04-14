@@ -392,25 +392,34 @@ with tab0:
         nd_str = nd.strftime("%m/%d")
         wd = ["一", "二", "三", "四", "五", "六", "日"]
 
-        for sig in user_buy_signals:
-            st.markdown(
-                f"### 🎯 買入訊號\n\n"
-                f"**請於 {nd_str}（{wd[nd.weekday()]}）13:25 前買入**\n\n---\n\n"
-                f"### {sig.get('name', '')}（{sig.get('ticker', '')}）\n\n"
-                f"收盤價 **{sig.get('close', 0)}** 元 ｜ 評分 **{int(sig.get('score', 0))}** 分\n\n"
-                f"📌 收盤前下單，跟 GPU 回測一致"
-            )
+        # SELL first (GPU order)
         for sig in user_sell_signals:
-            st.markdown(
-                f"### 📤 賣出訊號\n\n"
-                f"**請於 {nd_str}（{wd[nd.weekday()]}）9:00 開盤賣出**\n\n---\n\n"
-                f"### {sig.get('name', '')}（{sig.get('ticker', '')}）\n\n"
-                f"報酬 **{sig.get('return', 0):+.1f}%** ｜ {sig.get('reason', '')}"
+            st.error(
+                f"### 📤 賣出\n\n"
+                f"**{sig.get('name', '')}（{sig.get('ticker', '')}）**\n\n"
+                f"報酬 {sig.get('return', 0):+.1f}% ｜ {sig.get('reason', '')}\n\n"
+                f"**{nd_str}（{wd[nd.weekday()]}）9:00 開盤賣出（D+1）**"
             )
+
+        # BUY after sell (only #1, GPU rule: 1 per day)
+        for sig in user_buy_signals:
+            st.success(
+                f"### 🎯 買入\n\n"
+                f"**{sig.get('name', '')}（{sig.get('ticker', '')}）**\n\n"
+                f"評分 {int(sig.get('score', 0))} 分 ｜ 收盤價 {sig.get('close', 0)} 元\n\n"
+                f"**{nd_str}（{wd[nd.weekday()]}）13:25 前買入（D+1）**"
+            )
+
+        # If 2 sells but only 1 buy, explain the second slot
+        if len(user_sell_signals) > 1 and len(user_buy_signals) <= 1:
+            nd2 = next_trading_day(str(nd), trading_cal)
+            st.info(f"第 2 個空位等 {nd2.strftime('%m/%d')}（{wd[nd2.weekday()]}）掃描後再買入")
+
+        st.caption(f"訊號日：{scan_date}（D）")
     else:
         if scan and scan.get("date"):
             if len(user_holdings) >= max_positions:
-                st.info(f"目前滿倉（{len(user_holdings)}/{max_positions} 檔），無買入訊號")
+                st.info(f"目前滿倉（{len(user_holdings)}/{max_positions} 檔），無買賣訊號")
             else:
                 st.info("目前無任何訊號")
         else:
