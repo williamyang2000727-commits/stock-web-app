@@ -588,9 +588,8 @@ with tab3:
     bt_stats = backtest.get("stats", {}) if backtest else {}
     bt_trades = backtest.get("trades", []) if backtest else []
 
-    # === Auto-extend DISABLED: GPU data is ground truth, don't modify ===
-    # To update backtest, re-run backtest_to_web.py on Windows
-    if False and bt_trades and trading_date:
+    # === Auto-extend backtest from GPU end to today ===
+    if bt_trades and trading_date:
             import numpy as _np
             from scanner import compute_indicators, score_stock
 
@@ -600,17 +599,12 @@ with tab3:
             _max_pos = int(_sp.get("max_positions", 2))
             _buy_th = _sp.get("buy_threshold", 10)
 
-            # Only simulate if gap is 1 trading day (states are accurate)
-            # For larger gaps, user should re-run backtest_to_web.py on Windows
+            # Simulate ALL gap days (indicator states are close enough)
             _all_cal = sorted(trading_cal)
             _sim_dates = []
             try:
                 _bt_end_d = date.fromisoformat(bt_end)
-                _gap_days = [d for d in _all_cal if _bt_end_d < d <= date.fromisoformat(trading_date)]
-                if len(_gap_days) <= 2:
-                    _sim_dates = _gap_days  # Small gap: simulate
-                else:
-                    _sim_dates = _gap_days[-1:]  # Large gap: only simulate today
+                _sim_dates = [d for d in _all_cal if _bt_end_d < d <= date.fromisoformat(trading_date)]
             except:
                 pass
 
@@ -685,11 +679,16 @@ with tab3:
                             _ei = len(cs["c"])-_off
                             if _ei < 20: continue
                             try:
-                                ind = compute_indicators(
-                                    _np.array(cs["c"][:_ei],dtype=_np.float64),
-                                    _np.array(cs["h"][:_ei],dtype=_np.float64),
-                                    _np.array(cs["l"][:_ei],dtype=_np.float64),
-                                    _np.array(cs["v"][:_ei],dtype=_np.float64))
+                                _c = _np.array(cs["c"][:_ei],dtype=_np.float64)
+                                _h = _np.array(cs["h"][:_ei],dtype=_np.float64)
+                                _l = _np.array(cs["l"][:_ei],dtype=_np.float64)
+                                _v = _np.array(cs["v"][:_ei],dtype=_np.float64)
+                                _istates = indicator_states.get("states",{}) if indicator_states else {}
+                                if tk in _istates:
+                                    from scanner import compute_indicators_with_state
+                                    ind = compute_indicators_with_state(_c,_h,_l,_v,_istates[tk])
+                                else:
+                                    ind = compute_indicators(_c,_h,_l,_v)
                                 if ind and score_stock(ind,_sp) >= _buy_th:
                                     # Name: try live market_data (has names), fallback to ticker
                                     _nm = ""
