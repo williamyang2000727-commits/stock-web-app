@@ -1,0 +1,29 @@
+name: Daily Stock Scan
+
+on:
+  schedule:
+    # 16:35 Taiwan time (UTC+8) = 08:35 UTC, Mon-Fri
+    - cron: '35 8 * * 1-5'
+  workflow_dispatch: # Manual trigger
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests numpy
+
+      - name: Run daily scan
+        env:
+          GITHUB_TOKEN_GIST: ${{ secrets.GIST_TOKEN }}
+          DATA_GIST_ID: ${{ secrets.DATA_GIST_ID }}
+          HISTORY_GIST_ID: ${{ secrets.HISTORY_GIST_ID }}
+          STATE_GIST_ID: ${{ secrets.STATE_GIST_ID }}
+          GPU_GIST_ID: "c1bef892d33589baef2142ce250d18c2"
+        run: python daily_scan.py
