@@ -603,12 +603,17 @@ with tab3:
             _max_pos = int(_sp.get("max_positions", 2))
             _buy_th = _sp.get("buy_threshold", 10)
 
-            # Simulate ALL gap days (indicator states are close enough)
+            # Only simulate TODAY (indicator states only accurate for current day)
+            # For gaps > 1 day, need GPU or Mac to fill correctly
             _all_cal = sorted(trading_cal)
             _sim_dates = []
             try:
                 _bt_end_d = date.fromisoformat(bt_end)
-                _sim_dates = [d for d in _all_cal if _bt_end_d < d <= date.fromisoformat(trading_date)]
+                _gap = [d for d in _all_cal if _bt_end_d < d <= date.fromisoformat(trading_date)]
+                if len(_gap) <= 1:
+                    _sim_dates = _gap  # 1 day gap: simulate (states accurate)
+                else:
+                    _sim_dates = _gap[-1:]  # Multi-day gap: only simulate today
             except:
                 pass
 
