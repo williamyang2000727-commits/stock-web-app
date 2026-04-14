@@ -332,13 +332,7 @@ if not scan or not scan.get("buy_signals"):
 
 scan_date = scan.get("date", "") if scan else ""
 
-# ── Signal Computation ──
-max_positions = 2
-user_buy_signals = []
-if len(user_holdings) < max_positions and scan:
-    user_buy_signals = scan.get("buy_signals", [])[:1]
-
-# Trading calendar (exact trading days from TWSE, cached 24h)
+# ── Trading Calendar ──
 @st.cache_data(ttl=86400, show_spinner=False)
 def _get_trading_cal():
     from scanner import fetch_trading_calendar
@@ -352,7 +346,6 @@ def _get_full_trading_cal():
 trading_cal = _get_trading_cal()
 _full_trading_cal = _get_full_trading_cal()
 
-# Fallback: if TWSE calendar fails (cloud IP blocked), use all weekdays
 if not trading_cal:
     _d = date(2025, 1, 1)
     trading_cal = set()
@@ -361,18 +354,28 @@ if not trading_cal:
             trading_cal.add(_d)
         _d += timedelta(days=1)
 
-# Sell signals: live tracking using strategy sell conditions
+# ── Signal Computation (SELL first, then BUY based on remaining slots) ──
+max_positions = 2
+
+# 1. Sell signals FIRST
 user_sell_signals = []
 if user_holdings and strategy_params and market_data:
     try:
         from scanner import check_sell_signals
         _holdings_before = json.dumps(user_holdings)
         user_sell_signals = check_sell_signals(user_holdings, strategy_params, market_data, history_cache, trading_cal)
-        # Only save if peak_price actually changed (avoid unnecessary Gist writes)
         if json.dumps(user_holdings) != _holdings_before:
             save_user_holdings(username, user_holdings, clear_cache=False)
     except Exception:
         pass
+
+# 2. Buy signals (account for sells freeing slots)
+user_buy_signals = []
+_effective_holdings = len(user_holdings) - len(user_sell_signals)
+if _effective_holdings < max_positions and scan:
+    _sold_tickers = {s.get("ticker") for s in user_sell_signals}
+    _buy_candidates = [s for s in scan.get("buy_signals", []) if s.get("ticker") not in _sold_tickers]
+    user_buy_signals = _buy_candidates[:1]
 
 signal_count = len(user_buy_signals) + len(user_sell_signals)
 signal_label = f"🔴 訊號 ({signal_count})" if signal_count > 0 else "訊號"
