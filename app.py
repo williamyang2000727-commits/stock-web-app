@@ -601,6 +601,7 @@ with tab3:
         st.markdown("#### 換股狀態")
         _has_swap = False
         _sp = strategy_params
+        _already_recommended = set()  # Track recommended buys (avoid duplicates)
 
         for _bh in _bt_holding:
             _tk = _bh.get("ticker", "")
@@ -636,10 +637,12 @@ with tab3:
                 _nd_str = _nd.strftime("%m/%d")
                 _wd = ["一", "二", "三", "四", "五", "六", "日"]
 
-                # Find buy candidate (#1 excluding held)
-                _held_tks = {h.get("ticker") for h in _bt_holding}
+                # Find buy candidate (exclude held + already recommended)
+                _held_tks = {h.get("ticker") for h in _bt_holding} | _already_recommended
                 _buy_candidates = [s for s in scan.get("buy_signals", []) if s.get("ticker") not in _held_tks] if scan else []
                 _buy1 = _buy_candidates[0] if _buy_candidates else None
+                if _buy1:
+                    _already_recommended.add(_buy1.get("ticker"))
 
                 st.error(
                     f"**📤 賣出** {_nm}（{_tk}）\n\n"
