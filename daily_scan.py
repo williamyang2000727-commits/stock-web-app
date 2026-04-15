@@ -355,6 +355,10 @@ def main():
                     if len(cs_c) > 60:
                         ma60 = sum(cs_c[-61:-1]) / 60
                         if bp >= ma60 and cur < ma60: reason = "跌破MA60"
+                if not reason and sp.get("use_stagnation_exit", 0):
+                    stag_d = int(sp.get("stagnation_days", 10))
+                    stag_min = sp.get("stagnation_min_ret", 5)
+                    if dh >= stag_d and ret < stag_min: reason = "停滯出場"
                 if not reason and sp.get("use_time_decay", 0):
                     hh = int(sp.get("hold_days", 30)) // 2
                     if dh >= hh and ret < (dh - hh) * sp.get("ret_per_day", 0.5): reason = "漸進停利"
@@ -375,7 +379,7 @@ def main():
             _just_sold = {t["ticker"] for t in bt_trades if t.get("sell_date") == trading_date}
             if len(sim_holdings) < max_pos and signals:
                 held_tks = {h_item["ticker"] for h_item in sim_holdings} | _just_sold
-                for sig in signals[:1]:
+                for sig in signals:
                     if sig["ticker"] not in held_tks:
                         sim_holdings.append({
                             "ticker": sig["ticker"], "name": sig["name"],
@@ -384,14 +388,20 @@ def main():
                             "hold_days": 0, "return_pct": 0, "reason": "持有中",
                         })
                         print(f"  BUY {sig['name']} {sig['score']}分")
+                        break  # Only buy #1 per day (matching GPU)
 
-            # Update holdings prices
+            # Update holdings prices + hold_days
             for h_item in sim_holdings:
                 tk = h_item["ticker"]
                 if tk in market_data:
                     cur = market_data[tk]["close"]
                     h_item["sell_price"] = round(cur, 2)
                     h_item["return_pct"] = round((cur / h_item["buy_price"] - 1) * 100, 1) if h_item["buy_price"] > 0 else 0
+                    try:
+                        bd = date.fromisoformat(h_item["buy_date"])
+                        h_item["hold_days"] = max(0, int((date.fromisoformat(trading_date) - bd).days * 5 / 7))
+                    except:
+                        pass
 
             all_trades = sorted(bt_trades + sim_holdings, key=lambda t: t.get("buy_date", ""))
             bt_data["trades"] = all_trades

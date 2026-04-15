@@ -632,6 +632,15 @@ with tab3:
                 if not _reason and _sp.get("use_take_profit", 1) and _ret >= _sp.get("take_profit", 80): _reason = f"停利 +{_ret:.1f}%"
                 if not _reason and _sp.get("trailing_stop", 0) > 0 and _pk > _bp * 1.01:
                     if (_cur / _pk - 1) * 100 <= -_sp["trailing_stop"]: _reason = f"移動停利 {(_cur/_pk-1)*100:.1f}%"
+                if not _reason and int(_sp.get("sell_below_ma",0))>0 and _tk in _cache:
+                    _cs_c = list(_cache.get(_tk,{}).get("c",[]))
+                    if len(_cs_c) > 60:
+                        _ma60v = sum(_cs_c[-61:-1])/60
+                        if _bp >= _ma60v and _cur < _ma60v: _reason = "跌破MA60"
+                if not _reason and _sp.get("use_stagnation_exit",0):
+                    _stag_d = int(_sp.get("stagnation_days",10))
+                    _stag_min = _sp.get("stagnation_min_ret",5)
+                    if _dh >= _stag_d and _ret < _stag_min: _reason = "停滯出場"
                 if not _reason and _sp.get("use_time_decay", 0):
                     _hh = int(_sp.get("hold_days", 30)) // 2
                     if _dh >= _hh and _ret < (_dh - _hh) * _sp.get("ret_per_day", 0.5): _reason = "漸進停利"
@@ -692,7 +701,7 @@ with tab3:
 
         # Gap handling: sell checks ALL days, buy only on TODAY
         # (indicator states only accurate for today, but sell is price-based)
-        _all_cal = sorted(trading_cal)
+        _all_cal = sorted(_full_trading_cal) if _full_trading_cal else sorted(trading_cal)
         _sim_dates = []  # (date, can_buy)
         try:
             _bt_end_d = date.fromisoformat(bt_end)
@@ -748,6 +757,15 @@ with tab3:
                     if ret <= _sp.get("stop_loss",-20): reason = f"停損 {ret:+.1f}%"
                     if not reason and _sp.get("use_take_profit",1) and ret >= _sp.get("take_profit",80): reason = f"停利 +{ret:.1f}%"
                     if not reason and _sp.get("trailing_stop",0)>0 and pk>bp*1.01 and (cur/pk-1)*100<=-_sp["trailing_stop"]: reason = f"移動停利 {(cur/pk-1)*100:.1f}%"
+                    if not reason and int(_sp.get("sell_below_ma",0))>0 and tk in _cache:
+                        _cs_c = list(_cache[tk]["c"])
+                        if len(_cs_c) > 60:
+                            _ma60 = sum(_cs_c[-61:-1])/60
+                            if bp >= _ma60 and cur < _ma60: reason = "跌破MA60"
+                    if not reason and _sp.get("use_stagnation_exit",0):
+                        _stag_d = int(_sp.get("stagnation_days",10))
+                        _stag_min = _sp.get("stagnation_min_ret",5)
+                        if dh >= _stag_d and ret < _stag_min: reason = "停滯出場"
                     if not reason and _sp.get("use_time_decay",0):
                         hh=int(_sp.get("hold_days",30))//2
                         if dh>=hh and ret<(dh-hh)*_sp.get("ret_per_day",0.5): reason="漸進停利"
@@ -784,16 +802,17 @@ with tab3:
                                 ind = compute_indicators_with_state(_c,_h,_l,_v,_istates[tk])
                             else:
                                 ind = compute_indicators(_c,_h,_l,_v)
-                            if ind and score_stock(ind,_sp) >= _buy_th:
-                                # Name: try live market_data (has names), fallback to ticker
+                            _sc = score_stock(ind,_sp)
+                            if ind and _sc >= _buy_th:
                                 _nm = ""
                                 if market_data and tk in market_data:
                                     _nm = market_data[tk].get("name", "")
-                                _sigs.append({"tk":tk,"sc":score_stock(ind,_sp),"vol":_dmkt[tk]["vol"],
+                                _vr = round(ind.get("vol_ratio",1.0),1)
+                                _sigs.append({"tk":tk,"sc":_sc,"vol_ratio":_vr,
                                     "name":_nm or tk.replace(".TW","").replace(".TWO",""),"price":_dmkt[tk]["close"]})
                         except: continue
                     if _sigs:
-                        _sigs.sort(key=lambda x:(x["sc"],x["vol"]),reverse=True)
+                        _sigs.sort(key=lambda x:(x["sc"],x.get("vol_ratio",0)),reverse=True)
                         for s in _sigs[:1]:  # Only buy #1 per day (matching GPU)
                             sim_holdings.append({"ticker":s["tk"],"name":s["name"],"buy_price":s["price"],
                                 "buy_date":sd_str,"peak_price":s["price"],"sell_price":s["price"],
