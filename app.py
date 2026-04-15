@@ -565,7 +565,11 @@ with tab2:
                     new_date = st.date_input("買入日期", value=tw_today())
 
                 if st.form_submit_button("確認買入", use_container_width=True):
-                    if new_ticker and new_name and new_price > 0:
+                    if not new_ticker or not new_name or new_price <= 0:
+                        st.error("請填寫完整資訊")
+                    elif any(h.get("ticker","").replace(".TW","").replace(".TWO","") == new_ticker.strip().upper().replace(".TW","").replace(".TWO","") for h in user_holdings):
+                        st.error("此股票已在持倉中，不可重複買入")
+                    elif new_ticker and new_name and new_price > 0:
                         tk = new_ticker.strip().upper()
                         # 自動補 .TW/.TWO
                         if not tk.endswith(".TW") and not tk.endswith(".TWO"):
@@ -582,6 +586,7 @@ with tab2:
                             "name": new_name.strip(),
                             "buy_price": round(new_price, 2),
                             "buy_date": str(new_date),
+                            "peak_price": round(new_price, 2),
                         }]
                         if save_user_holdings(username, updated):
                             msg = f"已買入 {new_name}（{tk}）@ ${new_price:.2f}"
@@ -591,8 +596,6 @@ with tab2:
                             st.rerun()
                         else:
                             st.error("儲存失敗")
-                    else:
-                        st.error("請填寫完整資訊")
 
 # ══════════════════════════════════════════════════════════════
 # TAB 3: BACKTEST RESULTS
@@ -606,6 +609,7 @@ with tab3:
 
     # === 換股狀態 ===
     _bt_holding = [t for t in bt_trades if t.get("reason") == "持有中"]
+    _swap_cache = history_cache.get("stocks", {}) if history_cache else {}
     if _bt_holding and strategy_params and market_data:
         st.markdown("#### 換股狀態")
         _has_swap = False
@@ -621,7 +625,7 @@ with tab3:
             _cur = market_data[_tk]["close"]
             _ret = (_cur / _bp - 1) * 100
             try:
-                _dh = sum(1 for d in trading_cal if date.fromisoformat(_bh["buy_date"]) < d <= date.fromisoformat(scan_date)) if trading_cal else 0
+                _dh = sum(1 for d in (_full_trading_cal or trading_cal) if date.fromisoformat(_bh["buy_date"]) < d <= date.fromisoformat(scan_date)) if (trading_cal or _full_trading_cal) else 0
             except:
                 _dh = 0
             _pk = max(_bh.get("peak_price", _bp), _cur)
@@ -632,8 +636,8 @@ with tab3:
                 if not _reason and _sp.get("use_take_profit", 1) and _ret >= _sp.get("take_profit", 80): _reason = f"停利 +{_ret:.1f}%"
                 if not _reason and _sp.get("trailing_stop", 0) > 0 and _pk > _bp * 1.01:
                     if (_cur / _pk - 1) * 100 <= -_sp["trailing_stop"]: _reason = f"移動停利 {(_cur/_pk-1)*100:.1f}%"
-                if not _reason and int(_sp.get("sell_below_ma",0))>0 and _tk in _cache:
-                    _cs_c = list(_cache.get(_tk,{}).get("c",[]))
+                if not _reason and int(_sp.get("sell_below_ma",0))>0 and _tk in _swap_cache:
+                    _cs_c = list(_swap_cache.get(_tk,{}).get("c",[]))
                     if len(_cs_c) > 60:
                         _ma60v = sum(_cs_c[-61:-1])/60
                         if _bp >= _ma60v and _cur < _ma60v: _reason = "跌破MA60"
@@ -647,7 +651,7 @@ with tab3:
                 if not _reason and _sp.get("use_profit_lock", 0):
                     _pg = (_pk / _bp - 1) * 100
                     if _pg >= _sp.get("lock_trigger", 30) and _ret < _sp.get("lock_floor", 10): _reason = "鎖利"
-                if not _reason and _dh >= int(_sp.get("hold_days", 30)): _reason = f"到期{_dh}天"
+                if not _reason and _dh >= int(_sp.get("hold_days", 30)): _reason = f"到期{_dh}天 {_ret:+.1f}%"
 
             if _reason:
                 _sell_list.append({"name": _nm, "ticker": _tk, "reason": _reason, "ret": _ret, "dh": _dh})
@@ -888,7 +892,7 @@ with tab3:
         if len(_rets) >= 2:
             _mean_r = sum(_rets) / len(_rets)
             _std_r = math.sqrt(sum((r - _mean_r) ** 2 for r in _rets) / (len(_rets) - 1))
-            _trades_per_year = 252 / _avg_hold if _avg_hold > 0 else 12
+            _trades_per_year = 252 / _avg_hold if _avg_hold > 1 else 12
             _sharpe = (_mean_r / _std_r) * math.sqrt(_trades_per_year) if _std_r > 0 else 0
         else:
             _sharpe = 0
@@ -943,7 +947,7 @@ with tab3:
                     "": icon,
                     "股票": t.get("name", "") or t.get("ticker", ""),
                     "買入日": t.get("buy_date", ""),
-                    "賣出日": t.get("sell_date", ""),
+                    "賣出日": t.get("sell_date", "") or "—",
                     "買入價": t.get("buy_price", 0),
                     "賣出價": t.get("sell_price", 0),
                     "報酬%": f"{ret:+.1f}%",
@@ -957,9 +961,15 @@ with tab3:
             st.markdown("---")
             st.markdown("#### 出場原因分佈")
             reasons = {}
+            _reason_map = {"停損":"停損","停利":"停利","移動停利":"移動停利","跌破MA60":"跌破MA60",
+                           "停滯出場":"停滯出場","漸進停利":"漸進停利","鎖利":"鎖利","到期":"到期","持有中":"持有中"}
             for t in bt_trades:
-                r = t.get("reason", "其他").split("！")[0].split(" ")[0]
-                reasons[r] = reasons.get(r, 0) + 1
+                _raw = t.get("reason", "其他")
+                _cat = "其他"
+                for _k in _reason_map:
+                    if _raw.startswith(_k):
+                        _cat = _reason_map[_k]; break
+                reasons[_cat] = reasons.get(_cat, 0) + 1
             for r, count in sorted(reasons.items(), key=lambda x: -x[1]):
                 st.caption(f"  {r}：{count} 次")
     else:

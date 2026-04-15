@@ -36,10 +36,13 @@ def fetch_market_data():
                 if code.startswith("00"):
                     continue
                 vol = int(row[2].replace(",", ""))
-                o = float(row[4].replace(",", "").replace("--", "0"))
-                h = float(row[5].replace(",", "").replace("--", "0"))
-                lo = float(row[6].replace(",", "").replace("--", "0"))
                 c = float(row[7].replace(",", "").replace("--", "0"))
+                if "--" in row[4] or "--" in row[5] or "--" in row[6]:
+                    o = h = lo = c  # no OHLC, use close for all
+                else:
+                    o = float(row[4].replace(",", ""))
+                    h = float(row[5].replace(",", ""))
+                    lo = float(row[6].replace(",", ""))
                 if vol > 0 and c > 0:
                     all_data[f"{code}.TW"] = {
                         "open": o, "high": h, "low": lo,

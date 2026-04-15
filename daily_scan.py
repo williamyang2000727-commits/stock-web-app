@@ -61,9 +61,12 @@ def fetch_market_data():
                 vol = int(row[2].replace(",", ""))
                 c = float(row[7].replace(",", ""))
                 if vol > 0 and c > 0:
-                    o = float(row[4].replace(",", "")) if row[4].replace(",", "").replace(".", "").replace("-", "").isdigit() else c
-                    h = float(row[5].replace(",", "")) if row[5].replace(",", "").replace(".", "").replace("-", "").isdigit() else c
-                    lo = float(row[6].replace(",", "")) if row[6].replace(",", "").replace(".", "").replace("-", "").isdigit() else c
+                    if "--" in row[4] or "--" in row[5] or "--" in row[6]:
+                        o = h = lo = c
+                    else:
+                        o = float(row[4].replace(",", "")) if row[4].replace(",", "").replace(".", "").replace("-", "").isdigit() else c
+                        h = float(row[5].replace(",", "")) if row[5].replace(",", "").replace(".", "").replace("-", "").isdigit() else c
+                        lo = float(row[6].replace(",", "")) if row[6].replace(",", "").replace(".", "").replace("-", "").isdigit() else c
                     all_data[f"{code}.TW"] = {"open": o, "high": h, "low": lo, "close": c, "vol": vol, "name": row[1].strip()}
             except:
                 continue
@@ -365,7 +368,7 @@ def main():
                 if not reason and sp.get("use_profit_lock", 0):
                     pg = (pk / bp - 1) * 100
                     if pg >= sp.get("lock_trigger", 30) and ret < sp.get("lock_floor", 10): reason = "鎖利"
-                if not reason and dh >= int(sp.get("hold_days", 30)): reason = f"到期{dh}天"
+                if not reason and dh >= int(sp.get("hold_days", 30)): reason = f"到期{dh}天 {ret:+.1f}%"
                 if reason:
                     bt_trades.append({"ticker": tk, "name": h_item.get("name", ""), "buy_price": round(bp, 2),
                                       "sell_price": round(cur, 2), "hold_days": dh, "return_pct": round(ret, 1),
