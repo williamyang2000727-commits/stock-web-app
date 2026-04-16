@@ -842,10 +842,8 @@ with tab3:
         try:
             _sd = date.fromisoformat(bt_stats.get('start_date', ''))
             _ed = date.fromisoformat(bt_stats.get('end_date', ''))
-            if _full_trading_cal:
-                _total_days = sum(1 for d in _full_trading_cal if _sd <= d <= _ed)
-            else:
-                _total_days = int((_ed - _sd).days * 5 / 7)
+            # 台灣每年約 242 交易日（扣除週末+國定假日）
+            _total_days = round((_ed - _sd).days * 242 / 365)
         except:
             _total_days = bt_stats.get('total_days', 0)
         st.markdown(f"**回測期間**：{bt_stats.get('start_date', '')} ~ {bt_stats.get('end_date', '')}（{_total_days} 交易日）")
