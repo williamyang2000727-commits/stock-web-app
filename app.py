@@ -741,16 +741,15 @@ with tab3:
         _max_pos = int(_sp.get("max_positions", 2))
         _buy_th = _sp.get("buy_threshold", 10)
 
-        # Gap handling: sell checks ALL days, buy only on TODAY
-        # (indicator states only accurate for today, but sell is price-based)
+        # Gap handling: sell + buy on ALL days (use cache indicators for gap days)
         _all_cal = sorted(_full_trading_cal) if _full_trading_cal else sorted(trading_cal)
-        _sim_dates = []  # (date, can_buy)
+        _sim_dates = []  # (date, can_buy, use_states)
         try:
             _bt_end_d = date.fromisoformat(bt_end)
             _gap = [d for d in _all_cal if _bt_end_d < d <= date.fromisoformat(trading_date)]
             for _gd in _gap:
                 _is_today = (str(_gd) == trading_date)
-                _sim_dates.append((_gd, _is_today))  # Only buy on today
+                _sim_dates.append((_gd, True, _is_today))  # buy every day, states only today
         except:
             pass
 
@@ -765,7 +764,7 @@ with tab3:
             sim_holdings = [dict(t) for t in bt_trades if t.get("reason") == "持有中"]
             bt_trades = [t for t in bt_trades if t.get("reason") != "持有中"]
 
-            for sim_day, _can_buy in _sim_dates:
+            for sim_day, _can_buy, _use_states in _sim_dates:
                 sd_str = str(sim_day)
 
                 # Build market data for this day from cache or live API
@@ -822,7 +821,7 @@ with tab3:
                     else: _new_h.append(h)
                 sim_holdings = _new_h
 
-                # BUY (only on today - indicator states accurate for today only)
+                # BUY (every gap day using cache indicators, today using states)
                 if _can_buy and len(sim_holdings) < _max_pos:
                     _held = {h["ticker"] for h in sim_holdings}
                     _sigs = []
@@ -839,7 +838,7 @@ with tab3:
                             _l = _np.array(cs["l"][:_ei],dtype=_np.float64)
                             _v = _np.array(cs["v"][:_ei],dtype=_np.float64)
                             _istates = indicator_states.get("states",{}) if indicator_states else {}
-                            if tk in _istates:
+                            if _use_states and tk in _istates:
                                 from scanner import compute_indicators_with_state
                                 ind = compute_indicators_with_state(_c,_h,_l,_v,_istates[tk])
                             else:
