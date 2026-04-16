@@ -116,6 +116,44 @@ def get_market_data():
 
 
 # ── Helper ───────────────────────────────────────────────────
+@st.cache_data(ttl=604800, show_spinner=False)
+def _fetch_monthly_trading_days():
+    """TWSE FMTQIK: 每月交易天數（含精確日期），快取 7 天"""
+    from datetime import date as _d
+    import time as _time
+    today = tw_today()
+    trading_dates = set()
+    d = _d(2022, 1, 1)
+    while d <= today:
+        ds = d.strftime("%Y%m%d")
+        try:
+            r = requests.get(f"https://www.twse.com.tw/exchangeReport/FMTQIK?response=json&date={ds}",
+                timeout=10, verify=False, headers={"User-Agent": "Mozilla/5.0"})
+            for row in r.json().get("data", []):
+                parts = row[0].split("/")
+                trading_dates.add(_d(int(parts[0]) + 1911, int(parts[1]), int(parts[2])))
+            _time.sleep(0.15)
+        except:
+            pass
+        m = d.month + 1; y = d.year
+        if m > 12: m = 1; y += 1
+        d = _d(y, m, 1)
+    return trading_dates
+
+
+def _count_trading_days(start_str, end_str):
+    """精確計算兩個日期間的交易日數"""
+    try:
+        sd = date.fromisoformat(start_str)
+        ed = date.fromisoformat(end_str)
+        cal = _fetch_monthly_trading_days()
+        if cal:
+            return sum(1 for d in cal if sd <= d <= ed)
+        return round((ed - sd).days * 242 / 365)
+    except:
+        return 0
+
+
 def next_trading_day(scan_date_str, cal=None):
     try:
         d = date.fromisoformat(scan_date_str)
@@ -839,13 +877,7 @@ with tab3:
             except: pass
 
     if bt_stats:
-        try:
-            _sd = date.fromisoformat(bt_stats.get('start_date', ''))
-            _ed = date.fromisoformat(bt_stats.get('end_date', ''))
-            # 台灣每年約 242 交易日（扣除週末+國定假日）
-            _total_days = round((_ed - _sd).days * 242 / 365)
-        except:
-            _total_days = bt_stats.get('total_days', 0)
+        _total_days = _count_trading_days(bt_stats.get('start_date',''), bt_stats.get('end_date',''))
         st.markdown(f"**回測期間**：{bt_stats.get('start_date', '')} ~ {bt_stats.get('end_date', '')}（{_total_days} 交易日）")
         st.markdown("---")
 
