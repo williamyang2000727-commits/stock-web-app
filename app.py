@@ -753,14 +753,19 @@ with tab3:
         except:
             pass
 
-        # Map cache dates: last entry = cache_updated, previous = previous trading day
+        # Map cache dates: build direct date→index mapping (no offset errors)
         try:
             _cache_end_d = date.fromisoformat(_cache_updated)
         except:
             _cache_end_d = date.fromisoformat(trading_date)
-        _cal_up_to_cache = [d for d in _all_cal if d <= _cache_end_d] if _cache_updated else []
+        _cal_up_to_cache = sorted([d for d in _all_cal if d <= _cache_end_d]) if _cache_updated else []
+        # Cache has N entries, corresponding to the LAST N trading dates
+        _ref_stock = next(iter(_cache.values()), {}) if _cache else {}
+        _cache_len = len(_ref_stock.get("c", []))
+        _cache_dates = _cal_up_to_cache[-_cache_len:] if _cache_len > 0 else []
+        _date_to_idx = {d: i for i, d in enumerate(_cache_dates)}
 
-        if _sim_dates and (_cal_up_to_cache or market_data):
+        if _sim_dates and (_cache_dates or market_data):
             sim_holdings = [dict(t) for t in bt_trades if t.get("reason") == "持有中"]
             bt_trades = [t for t in bt_trades if t.get("reason") != "持有中"]
 
@@ -771,12 +776,11 @@ with tab3:
                 _dmkt = {}
                 if sd_str == trading_date and market_data:
                     _dmkt = market_data
-                elif sim_day in _cal_up_to_cache:
-                    _offset = len(_cal_up_to_cache) - 1 - _cal_up_to_cache.index(sim_day)
+                elif sim_day in _date_to_idx:
+                    _idx = _date_to_idx[sim_day]
                     for tk, cs in _cache.items():
-                        idx = len(cs["c"]) - 1 - _offset
-                        if 0 <= idx < len(cs["c"]):
-                            _dmkt[tk] = {"close":cs["c"][idx],"high":cs["h"][idx],"low":cs["l"][idx],"vol":cs["v"][idx]}
+                        if _idx < len(cs["c"]):
+                            _dmkt[tk] = {"close":cs["c"][_idx],"high":cs["h"][_idx],"low":cs["l"][_idx],"vol":cs["v"][_idx]}
                 if len(_dmkt) < 50:
                     continue
 
@@ -828,9 +832,8 @@ with tab3:
                     for tk in _top100:
                         if tk in _held or tk not in _cache: continue
                         cs = _cache[tk]
-                        if sim_day not in _cal_up_to_cache: continue
-                        _off = len(_cal_up_to_cache)-1-_cal_up_to_cache.index(sim_day)
-                        _ei = len(cs["c"])-_off
+                        if sim_day not in _date_to_idx: continue
+                        _ei = _date_to_idx[sim_day] + 1
                         if _ei < 20: continue
                         try:
                             _c = _np.array(cs["c"][:_ei],dtype=_np.float64)
