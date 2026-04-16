@@ -348,6 +348,7 @@ if history_cache and cache_date and market_data and trading_date > cache_date:
             _hist["h"] = _hist["h"][-79:] + [_info.get("high", _info["close"])]
             _hist["l"] = _hist["l"][-79:] + [_info.get("low", _info["close"])]
             _hist["v"] = _hist["v"][-79:] + [_info["vol"]]
+            _hist["dates"] = (_hist.get("dates") or [])[-79:] + [trading_date]
     history_cache["updated"] = trading_date
     try:
         _h = {"Authorization": f"token {GITHUB_TOKEN}"}
@@ -753,17 +754,23 @@ with tab3:
         except:
             pass
 
-        # Map cache dates: build direct date→index mapping (no offset errors)
-        try:
-            _cache_end_d = date.fromisoformat(_cache_updated)
-        except:
-            _cache_end_d = date.fromisoformat(trading_date)
-        _cal_up_to_cache = sorted([d for d in _all_cal if d <= _cache_end_d]) if _cache_updated else []
-        # Cache has N entries, corresponding to the LAST N trading dates
+        # Map cache dates: use stored dates array (exact, no guessing)
         _ref_stock = next(iter(_cache.values()), {}) if _cache else {}
-        _cache_len = len(_ref_stock.get("c", []))
-        _cache_dates = _cal_up_to_cache[-_cache_len:] if _cache_len > 0 else []
-        _date_to_idx = {d: i for i, d in enumerate(_cache_dates)}
+        _stored_dates = _ref_stock.get("dates", [])
+        _date_to_idx = {}
+        if _stored_dates:
+            # dates 存的是 string "2026-04-01"，轉成 date object
+            _date_to_idx = {date.fromisoformat(d) if isinstance(d,str) else d: i for i, d in enumerate(_stored_dates)}
+        else:
+            # Fallback: guess from calendar (old cache without dates)
+            try:
+                _cache_end_d = date.fromisoformat(_cache_updated)
+            except:
+                _cache_end_d = date.fromisoformat(trading_date)
+            _cal_up = sorted([d for d in _all_cal if d <= _cache_end_d]) if _cache_updated else []
+            _cache_len = len(_ref_stock.get("c", []))
+            _cache_dates_fb = _cal_up[-_cache_len:] if _cache_len > 0 else []
+            _date_to_idx = {d: i for i, d in enumerate(_cache_dates_fb)}
 
         if _sim_dates and (_cache_dates or market_data):
             sim_holdings = [dict(t) for t in bt_trades if t.get("reason") == "持有中"]

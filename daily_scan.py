@@ -277,6 +277,7 @@ def main():
                 hist["h"] = hist["h"][-79:] + [info.get("high", info["close"])]
                 hist["l"] = hist["l"][-79:] + [info.get("low", info["close"])]
                 hist["v"] = hist["v"][-79:] + [info["vol"]]
+                hist["dates"] = (hist.get("dates") or [])[-79:] + [trading_date]
         history["updated"] = trading_date
         write_gist(HISTORY_GIST, "history_cache.json", history)
         print(f"  Updated {len(cache)} stocks")
