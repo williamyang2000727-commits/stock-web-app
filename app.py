@@ -1068,6 +1068,11 @@ with tab3:
         st.markdown(f"**回測期間**：{_first_trade_date} ~ {_data_end}（{_total_days} 交易日，首筆交易起算）")
         if _data_start and _first_trade_date and _data_start != _first_trade_date:
             st.caption(f"📝 資料自 {_data_start} 起，前 60 個交易日為指標暖機期（MA60/ADX 等需歷史資料）")
+        st.caption(
+            "💡 **價格為 yfinance 除權息調整後價**，不等於當時券商實際成交價。"
+            "例：保瑞 2022-11-18 實際交易 ~308，因後續配息/配股調整後顯示 264。"
+            "**報酬率 % 已含除權息**，是你實際會拿到的（與券商對 Yahoo『調整後收盤價』核對）。"
+        )
         st.markdown("---")
 
         # Compute all stats from trades
