@@ -195,6 +195,9 @@ def main():
                 hist["h"] = hist["h"][-79:] + [info.get("high", info["close"])]
                 hist["l"] = hist["l"][-79:] + [info.get("low", info["close"])]
                 hist["v"] = hist["v"][-79:] + [info["vol"]]
+                # 新加：存 open 價（修 consecutive_green + gap_up 歷史限制）
+                # 舊快取沒有 o 陣列，從今天開始每天累加（~80 天後全部填滿）
+                hist["o"] = (hist.get("o") or [])[-79:] + [info.get("open", info["close"])]
                 hist["dates"] = (hist.get("dates") or [])[-79:] + [trading_date]
         history["updated"] = trading_date
         write_gist(HISTORY_GIST, "history_cache.json", history)
@@ -213,7 +216,8 @@ def main():
         lo = np.array(cs["l"], dtype=np.float64)
         v = np.array(cs["v"], dtype=np.float64)
         if len(c) < 20: continue
-        ind = compute_indicators_with_state(c, h, lo, v, states[tk])
+        o_arr = np.array(cs["o"], dtype=np.float64) if cs.get("o") and len(cs["o"]) == len(cs["c"]) else None
+        ind = compute_indicators_with_state(c, h, lo, v, states[tk], o=o_arr)
         if ind is None: continue
         # Gap % — 今天 open vs 快取中昨天 close
         _td_info = market_data.get(tk, {})

@@ -850,12 +850,15 @@ with tab3:
                             _h = _np.array(cs["h"][:_ei],dtype=_np.float64)
                             _l = _np.array(cs["l"][:_ei],dtype=_np.float64)
                             _v = _np.array(cs["v"][:_ei],dtype=_np.float64)
+                            # 新加：若 cache 有 open 陣列，傳進去算精確 consecutive_green / gap_up
+                            _o_raw = cs.get("o", [])
+                            _o = _np.array(_o_raw[:_ei], dtype=_np.float64) if _o_raw and len(_o_raw) >= _ei else None
                             _istates = indicator_states.get("states",{}) if indicator_states else {}
                             if _use_states and tk in _istates:
                                 from scanner import compute_indicators_with_state
-                                ind = compute_indicators_with_state(_c,_h,_l,_v,_istates[tk])
+                                ind = compute_indicators_with_state(_c,_h,_l,_v,_istates[tk], o=_o)
                             else:
-                                ind = compute_indicators(_c,_h,_l,_v)
+                                ind = compute_indicators(_c,_h,_l,_v, o=_o)
                             _sc = score_stock(ind,_sp)
                             if ind and _sc >= _buy_th:
                                 _nm = ""

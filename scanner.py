@@ -87,7 +87,7 @@ def fetch_market_data():
     return all_data, trading_date
 
 
-def compute_indicators(c, h, lo, vol):
+def compute_indicators(c, h, lo, vol, o=None):
     """Compute technical indicators (matching GPU algorithm)."""
     n = len(c)
     if n < 20:
@@ -255,6 +255,22 @@ def compute_indicators(c, h, lo, vol):
     else:
         ind["week52_pos"] = 0.5
 
+    # 若有 open 陣列，算精確的 is_green_today（修 consecutive_green）和 gap_pct（修 gap_up 歷史）
+    if o is not None and len(o) == n:
+        ind["is_green_today"] = 1 if c[last] > o[last] else 0
+        # 連續紅 K（準確版，不再用 up_days 近似）
+        cg_real = 0
+        for i in range(last, -1, -1):
+            if c[i] > o[i]: cg_real += 1
+            else: break
+        ind["consecutive_green_days"] = int(cg_real)
+        # 歷史 gap_up（今天 open vs 昨天 close）
+        if last >= 1 and c[last - 1] > 0:
+            ind["gap_pct_historical"] = float((o[last] / c[last - 1] - 1) * 100)
+        else:
+            ind["gap_pct_historical"] = 0.0
+    # 否則 score_stock 會 fallback 到 up_days approximation
+
     return ind
 
 
@@ -320,14 +336,17 @@ def score_stock(ind, params):
         if ind.get(f"obv_rising_{od_key}", 0) == 1:
             sc += w
 
-    # 連續紅K / 跳空（需 open；只在 ind 有 open 欄位時才判）
+    # 連續紅 K：優先用精確 consecutive_green_days（cache 有 open）→ fallback up_days 近似
     cg = int(p.get("consecutive_green", 0))
     if cg >= 1:
-        # 用 up_days 當 approximation（收盤連漲 ≈ 連紅 K）
-        if ind.get("up_days", 0) >= cg:
+        cg_actual = ind.get("consecutive_green_days", ind.get("up_days", 0))
+        if cg_actual >= cg:
             sc += 1
-    if p.get("gap_up", 0) == 1 and ind.get("gap_pct", 0) >= 1.0:
-        sc += 1
+    # Gap：優先 gap_pct（今天市場資料）→ fallback gap_pct_historical（cache 有 open）
+    if p.get("gap_up", 0) == 1:
+        gap_v = ind.get("gap_pct", ind.get("gap_pct_historical", 0))
+        if gap_v >= 1.0:
+            sc += 1
     if p.get("above_ma60", 0) == 1 and ind.get("above_ma60", 0):
         sc += 1
     if p.get("vol_gt_yesterday", 0) == 1 and ind.get("vol_gt_yesterday", 0):
@@ -336,7 +355,7 @@ def score_stock(ind, params):
     return sc
 
 
-def compute_indicators_with_state(c, h, lo, vol, state):
+def compute_indicators_with_state(c, h, lo, vol, state, o=None):
     """Use pre-computed running states for Wilder indicators (exact match with Mac)."""
     n = len(c)
     if n < 20:
@@ -472,6 +491,19 @@ def compute_indicators_with_state(c, h, lo, vol, state):
     else:
         ind["week52_pos"] = 0.5
 
+    # 若有 open 陣列：精確 consecutive_green / historical gap_up
+    if o is not None and len(o) == n:
+        ind["is_green_today"] = 1 if c[last] > o[last] else 0
+        cg_real = 0
+        for i in range(last, -1, -1):
+            if c[i] > o[i]: cg_real += 1
+            else: break
+        ind["consecutive_green_days"] = int(cg_real)
+        if last >= 1 and c[last - 1] > 0:
+            ind["gap_pct_historical"] = float((o[last] / c[last - 1] - 1) * 100)
+        else:
+            ind["gap_pct_historical"] = 0.0
+
     return ind
 
 
@@ -518,16 +550,23 @@ def run_scan(params, held_tickers=None, history_cache=None, indicator_states=Non
             today_info = market_data[ticker]
             new_day = trading_date > cache_updated
 
+            hist_o = cs.get("o", [])  # open 陣列（舊 cache 可能沒有）
             if new_day:
                 c = np.array(hist_c + [today_info["close"]], dtype=np.float64)
                 h = np.array(hist_h + [today_info["high"]], dtype=np.float64)
                 lo = np.array(hist_l + [today_info["low"]], dtype=np.float64)
                 v = np.array(hist_v + [today_info["vol"]], dtype=np.float64)
+                # 只有當 hist_o 長度和 hist_c 匹配時才 append（確保陣列長度一致）
+                if hist_o and len(hist_o) == len(hist_c):
+                    o = np.array(hist_o + [today_info.get("open", today_info["close"])], dtype=np.float64)
+                else:
+                    o = None
             else:
                 c = np.array(hist_c, dtype=np.float64)
                 h = np.array(hist_h, dtype=np.float64)
                 lo = np.array(hist_l, dtype=np.float64)
                 v = np.array(hist_v, dtype=np.float64)
+                o = np.array(hist_o, dtype=np.float64) if hist_o and len(hist_o) == len(hist_c) else None
 
             if len(c) < 20:
                 continue
@@ -574,9 +613,9 @@ def run_scan(params, held_tickers=None, history_cache=None, indicator_states=Non
                     st["kd_d_prev"] = st["kd_d"]
                     st["kd_k"] = st["kd_k"] * 2/3 + rsv / 3
                     st["kd_d"] = st["kd_d"] * 2/3 + st["kd_k"] / 3
-                ind = compute_indicators_with_state(c, h, lo, v, st)
+                ind = compute_indicators_with_state(c, h, lo, v, st, o=o)
             else:
-                ind = compute_indicators(c, h, lo, v)
+                ind = compute_indicators(c, h, lo, v, o=o)
             if ind is None:
                 continue
 
@@ -692,11 +731,18 @@ def check_sell_signals(holdings, params, market_data, history_cache, trading_dat
             if any(params.get(k, 0) for k in ("use_rsi_sell", "use_macd_sell", "use_kd_sell", "sell_vol_shrink", "use_mom_exit")):
                 try:
                     c_arr = np.array(cache_closes, dtype=np.float64)
-                    h_arr = np.array(list(cs["h"]) + [market_data[ticker]["high"]] if ticker in market_data else list(cs["h"]), dtype=np.float64)
-                    l_arr = np.array(list(cs["l"]) + [market_data[ticker]["low"]] if ticker in market_data else list(cs["l"]), dtype=np.float64)
-                    v_arr = np.array(list(cs["v"]) + [market_data[ticker]["vol"]] if ticker in market_data else list(cs["v"]), dtype=np.float64)
+                    _h_list = list(cs["h"]) + ([market_data[ticker]["high"]] if ticker in market_data else [])
+                    _l_list = list(cs["l"]) + ([market_data[ticker]["low"]] if ticker in market_data else [])
+                    _v_list = list(cs["v"]) + ([market_data[ticker]["vol"]] if ticker in market_data else [])
+                    h_arr = np.array(_h_list, dtype=np.float64)
+                    l_arr = np.array(_l_list, dtype=np.float64)
+                    v_arr = np.array(_v_list, dtype=np.float64)
+                    _o_list = list(cs.get("o", []))
+                    if _o_list and ticker in market_data:
+                        _o_list = _o_list + [market_data[ticker].get("open", market_data[ticker]["close"])]
+                    o_arr = np.array(_o_list, dtype=np.float64) if _o_list and len(_o_list) == len(c_arr) else None
                     if len(c_arr) >= 20:
-                        ind = compute_indicators(c_arr, h_arr, l_arr, v_arr)
+                        ind = compute_indicators(c_arr, h_arr, l_arr, v_arr, o=o_arr)
                 except Exception:
                     ind = None
 
