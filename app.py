@@ -750,6 +750,8 @@ with tab3:
         st.markdown("---")
 
     # === Auto-extend backtest from GPU end to today ===
+    # 規則：app.py 只填「過去完整交易日」，絕不模擬「今天」
+    # 今天的交易是 daily_scan 16:35 的職責。若 daily_scan 未跑，用戶不該看到盤中半成品訊號
     bt_end = bt_stats.get("end_date", "")
     if bt_trades and trading_date and bt_end and trading_date > bt_end and trading_cal and history_cache:
         import numpy as _np
@@ -761,15 +763,29 @@ with tab3:
         _max_pos = int(_sp.get("max_positions", 2))
         _buy_th = _sp.get("buy_threshold", 10)
 
-        # Gap handling: sell + buy on ALL days (use cache indicators for gap days)
+        # Gap handling: sell + buy on past trading days ONLY（嚴格 < trading_date）
         _all_cal = sorted(_full_trading_cal) if _full_trading_cal else sorted(trading_cal)
-        _sim_dates = []  # (date, can_buy, use_states)
+        _sim_dates = []
         try:
             _bt_end_d = date.fromisoformat(bt_end)
-            _gap = [d for d in _all_cal if _bt_end_d < d <= date.fromisoformat(trading_date)]
+            _today_d_parsed = date.fromisoformat(trading_date)
+            # 嚴格小於今天：絕不模擬今天
+            _gap = [d for d in _all_cal if _bt_end_d < d < _today_d_parsed]
             for _gd in _gap:
-                _is_today = (str(_gd) == trading_date)
-                _sim_dates.append((_gd, True, _is_today))  # buy every day, states only today
+                _sim_dates.append((_gd, True, False))  # 歷史日，use_states=False（只用 cache）
+        except:
+            pass
+
+        # 警告：今天的交易尚未由 daily_scan 記錄
+        try:
+            import datetime as _dt_mod
+            _now_tw = _dt_mod.datetime.now(_dt_mod.timezone(_dt_mod.timedelta(hours=8)))
+            _is_trading_day_today = _today_d_parsed in (_all_cal or [])
+            if _is_trading_day_today and bt_end < trading_date:
+                if _now_tw.hour < 16 or (_now_tw.hour == 16 and _now_tw.minute < 40):
+                    st.warning(f"⏳ 今日 daily_scan 尚未執行（預定 16:35），目前訊號為**昨日（{bt_end}）收盤後**的資料。請於 16:40 後重新整理以取得今日訊號。")
+                else:
+                    st.warning(f"⚠️ 今日 daily_scan 應已執行但 Web 資料尚未更新到 {trading_date}。可能網路或 GitHub Actions 異常，請稍候或手動觸發。")
         except:
             pass
 
