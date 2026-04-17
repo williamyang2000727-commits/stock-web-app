@@ -688,6 +688,44 @@ with tab3:
     bt_stats = backtest.get("stats", {}) if backtest else {}
     bt_trades = backtest.get("trades", []) if backtest else []
 
+    # === 🔴 延續交易新鮮度檢查（保證資料永遠最新）===
+    _bt_end_check = bt_stats.get("end_date", "")
+    _cache_updated_check = history_cache.get("updated", "") if history_cache else ""
+    try:
+        _cal_for_check = sorted(_full_trading_cal) if _full_trading_cal else sorted(trading_cal)
+        _today_check = date.fromisoformat(trading_date) if trading_date else tw_today()
+        _bt_end_d_check = date.fromisoformat(_bt_end_check) if _bt_end_check else None
+        # 計算回測端點和今天之間隔了幾個交易日
+        if _bt_end_d_check and _cal_for_check:
+            _missing_trading_days = sum(1 for d in _cal_for_check if _bt_end_d_check < d <= _today_check)
+        else:
+            _missing_trading_days = 0
+        # 超過 1 個交易日沒更新 → 嚴重警告
+        if _missing_trading_days >= 2:
+            st.error(
+                f"🚨 **回測資料落後 {_missing_trading_days} 個交易日！**\n\n"
+                f"最後更新：{_bt_end_check}｜今天：{trading_date}\n\n"
+                f"**daily_scan 可能故障**。請到 GitHub Actions 手動觸發 workflow，"
+                f"或檢查 GitHub Actions 是否被 disable。"
+            )
+        elif _missing_trading_days == 1:
+            # 正常：今天 daily_scan 可能還沒跑（16:35 前）
+            import datetime as _dt2
+            _now_tw2 = _dt2.datetime.now(_dt2.timezone(_dt2.timedelta(hours=8)))
+            if _now_tw2.hour >= 17:  # 17:00 後還沒更新 = 異常
+                st.warning(
+                    f"⚠️ daily_scan 似乎還沒跑完今天（預定 16:35）— {_bt_end_check} 最後更新。"
+                    f"可能網路延遲，請稍候或手動 retrigger。"
+                )
+        # Cache 過期檢查
+        if _cache_updated_check:
+            _cache_d = date.fromisoformat(_cache_updated_check) if _cache_updated_check else None
+            _cache_gap = sum(1 for d in _cal_for_check if _cache_d < d <= _today_check) if _cache_d else 0
+            if _cache_gap >= 2:
+                st.error(f"🚨 **歷史快取落後 {_cache_gap} 天**（{_cache_updated_check}）— 指標計算會用舊資料")
+    except Exception as _e:
+        pass
+
     # === 換股狀態 ===
     _bt_holding = [t for t in bt_trades if t.get("reason") == "持有中"]
     _swap_cache = history_cache.get("stocks", {}) if history_cache else {}
@@ -736,8 +774,30 @@ with tab3:
         for _w in _edge_warnings:
             st.warning(_w)
 
-    if _bt_holding and strategy_params and market_data:
-        st.markdown("#### 換股狀態")
+    # === 換股狀態永遠顯示（不管有沒有持倉）===
+    st.markdown("#### 換股狀態")
+    if not bt_trades:
+        st.info("尚無回測資料。請推策略到 Gist（backtest_to_web.py）。")
+    elif not strategy_params:
+        st.warning("尚未載入策略參數")
+    elif not market_data:
+        st.warning("尚未載入市場資料（TWSE/TPEx）")
+    elif not _bt_holding:
+        # 沒持倉 — 等下個買入訊號
+        _next_td = next_trading_day(trading_date, trading_cal)
+        _wdn = ["一", "二", "三", "四", "五", "六", "日"]
+        _buy_candidates_empty = scan.get("buy_signals", []) if scan else []
+        if _buy_candidates_empty:
+            _b0 = _buy_candidates_empty[0]
+            st.success(
+                f"**🎯 D+1 買入**（持倉 0 檔，直接開新倉）{_b0.get('name', '')}（{_b0.get('ticker', '')}）\n\n"
+                f"評分 {int(_b0.get('score', 0))} 分｜收盤價 {_b0.get('close', 0)}｜"
+                f"**{_next_td.strftime('%m/%d')}（{_wdn[_next_td.weekday()]}）13:25 前買入**"
+            )
+        else:
+            st.info(f"目前 0 檔持倉，掃描也無達標買入候選（下個交易日 {_next_td.strftime('%m/%d')} 若無訊號繼續觀望）")
+        st.markdown("---")
+    elif _bt_holding and strategy_params and market_data:
         _has_swap = False
         _sp = strategy_params
         _sell_list = []  # Collect all sells first
@@ -977,10 +1037,16 @@ with tab3:
                     except: pass
 
             bt_trades = sorted(bt_trades + sim_holdings, key=lambda t: t.get("buy_date", ""))
-            bt_stats["end_date"] = trading_date
+            # Bug fix: 只把 end_date 設到實際模擬過的最後一天，不要假裝走到今天
+            # 今天的交易由 daily_scan 在 16:35 處理
+            if _sim_dates:
+                _last_sim_day = _sim_dates[-1][0]
+                bt_stats["end_date"] = str(_last_sim_day)
+            # 若沒模擬（因為 _sim_dates 空，即 bt_end 已是昨天之後）→ 不動 end_date
             try:
                 write_gist_file("backtest_results.json",{"stats":bt_stats,"trades":bt_trades},clear_cache=False)
-            except: pass
+            except Exception as _e:
+                st.warning(f"⚠️ 延續交易儲存失敗：{_e}（本次顯示不影響，下次刷新時會再嘗試）")
 
     if bt_stats:
         _total_days = _count_trading_days(bt_stats.get('start_date',''), bt_stats.get('end_date',''))
