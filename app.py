@@ -1049,8 +1049,16 @@ with tab3:
                 st.warning(f"⚠️ 延續交易儲存失敗：{_e}（本次顯示不影響，下次刷新時會再嘗試）")
 
     if bt_stats:
-        _total_days = _count_trading_days(bt_stats.get('start_date',''), bt_stats.get('end_date',''))
-        st.markdown(f"**回測期間**：{bt_stats.get('start_date', '')} ~ {bt_stats.get('end_date', '')}（{_total_days} 交易日）")
+        # Bug fix: 回測期間用「首筆交易」到「末筆/今天」而非「資料起始」
+        # kernel 有 60 天指標暖機，資料起始 ≠ 交易起始
+        _data_start = bt_stats.get('start_date', '')
+        _data_end = bt_stats.get('end_date', '')
+        _all_buy_dates = sorted([t.get("buy_date", "") for t in bt_trades if t.get("buy_date")])
+        _first_trade_date = _all_buy_dates[0] if _all_buy_dates else _data_start
+        _total_days = _count_trading_days(_first_trade_date, _data_end)
+        st.markdown(f"**回測期間**：{_first_trade_date} ~ {_data_end}（{_total_days} 交易日，首筆交易起算）")
+        if _data_start and _first_trade_date and _data_start != _first_trade_date:
+            st.caption(f"📝 資料自 {_data_start} 起，前 60 個交易日為指標暖機期（MA60/ADX 等需歷史資料）")
         st.markdown("---")
 
         # Compute all stats from trades
@@ -1072,9 +1080,9 @@ with tab3:
         _pos_size = 1 / max(int(strategy_params.get("max_positions", 2)), 1)
         _portfolio_growth = 1 + (_bt_total * _pos_size) / 100
         try:
-            _start_d = date.fromisoformat(bt_stats.get("start_date", "2022-01-01"))
-            _end_d = date.fromisoformat(bt_stats.get("end_date", str(tw_today())))
-            # Bug fix: _years 下限從 0.1 改 1.0，避免極短回測期讓 CAGR 爆表
+            # Bug fix: CAGR 用「首筆交易 → 末筆/今天」的實際交易期
+            _start_d = date.fromisoformat(_first_trade_date) if _first_trade_date else date.fromisoformat(bt_stats.get("start_date", "2022-01-01"))
+            _end_d = date.fromisoformat(_data_end) if _data_end else date.fromisoformat(str(tw_today()))
             _years = max((_end_d - _start_d).days / 365.25, 1.0)
             _cagr = (_portfolio_growth ** (1 / _years) - 1) * 100 if _portfolio_growth > 0 else 0
         except:
