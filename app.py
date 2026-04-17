@@ -772,7 +772,7 @@ with tab3:
             _cache_dates_fb = _cal_up[-_cache_len:] if _cache_len > 0 else []
             _date_to_idx = {d: i for i, d in enumerate(_cache_dates_fb)}
 
-        if _sim_dates and (_cache_dates or market_data):
+        if _sim_dates and (_date_to_idx or market_data):
             sim_holdings = [dict(t) for t in bt_trades if t.get("reason") == "持有中"]
             bt_trades = [t for t in bt_trades if t.get("reason") != "持有中"]
 
