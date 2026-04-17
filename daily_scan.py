@@ -155,11 +155,70 @@ def compute_indicators_with_state(c, h, lo, vol, state):
     sq_y = _sq(last - 1, atr_val) if last >= 1 and n > 21 else False
     ind["squeeze_fire"] = 1 if sq_y and not sq_t and state["mh"] > 0 else 0
     ind["adx"] = float(state["adx_val"])
+
+    # 補齊：MACD / BIAS / OBV / up_days / vol_up_days / mom_accel / week52
+    if "macd_hist" in state:
+        ind["macd_hist"] = float(state["macd_hist"])
+        ind["macd_line"] = float(state.get("macd_line", 0))
+        ind["macd_hist_prev"] = float(state.get("macd_hist_prev", 0))
+    else:
+        e12 = np.zeros(n); e26 = np.zeros(n); e12[0] = c[0]; e26[0] = c[0]
+        for i in range(1, n):
+            e12[i] = e12[i-1] * (1 - 2/13) + c[i] * 2/13
+            e26[i] = e26[i-1] * (1 - 2/27) + c[i] * 2/27
+        ml_arr = e12 - e26
+        ms_arr = np.zeros(n); ms_arr[0] = ml_arr[0]
+        for i in range(1, n):
+            ms_arr[i] = ms_arr[i-1] * (1 - 2/10) + ml_arr[i] * 2/10
+        mh_arr = ml_arr - ms_arr
+        ind["macd_line"] = float(ml_arr[last])
+        ind["macd_hist"] = float(mh_arr[last])
+        ind["macd_hist_prev"] = float(mh_arr[last - 1]) if last >= 1 else 0.0
+
+    ma20_v = ind.get("ma20", c[last])
+    ind["bias"] = float((c[last] - ma20_v) / ma20_v * 100) if ma20_v > 0 else 0.0
+
+    obv = np.zeros(n)
+    for i in range(1, n):
+        if c[i] > c[i - 1]: obv[i] = obv[i - 1] + vol[i]
+        elif c[i] < c[i - 1]: obv[i] = obv[i - 1] - vol[i]
+        else: obv[i] = obv[i - 1]
+    for d in [3, 5, 10]:
+        ind[f"obv_rising_{d}"] = 1 if last >= d and obv[last] > obv[last - d] else 0
+
+    up = 0
+    for i in range(last, 0, -1):
+        if c[i] > c[i - 1]: up += 1
+        else: break
+    ind["up_days"] = int(up)
+
+    vup = 0
+    for i in range(last, 0, -1):
+        if vol[i] > vol[i - 1]: vup += 1
+        else: break
+    ind["vol_up_days"] = int(vup)
+
+    if last >= 6:
+        m_t = (c[last] / c[last - 5] - 1) * 100
+        m_y = (c[last - 1] / c[last - 6] - 1) * 100
+        ind["mom_accel"] = float(m_t - m_y)
+    else:
+        ind["mom_accel"] = 0.0
+
+    w52_n = min(250, n)
+    w52_start = last - w52_n + 1
+    if w52_start >= 0 and w52_n >= 20:
+        high_w = float(np.max(h[w52_start:last + 1]))
+        low_w = float(np.min(lo[w52_start:last + 1]))
+        ind["week52_pos"] = (c[last] - low_w) / (high_w - low_w) if high_w > low_w else 0.5
+    else:
+        ind["week52_pos"] = 0.5
+
     return ind
 
 
 def score_stock(ind, params):
-    """Same as scanner.py"""
+    """Must match GPU kernel 1:1 — mirrors scanner.py score_stock exactly."""
     sc = 0
     p = params
     ma_fw = int(p.get("ma_fast_w", 5))
@@ -169,6 +228,7 @@ def score_stock(ind, params):
     for key, cond in [
         ("w_rsi", ind["rsi"] >= p.get("rsi_th", 55)),
         ("w_bb", ind["bb_pos"] >= p.get("bb_th", 0.7)),
+        ("w_vol", ind.get("vol_ratio", 0) >= p.get("vol_th", 3)),
         ("w_ma", ind["price"] > ind.get(f"ma{ma_fw}", 0)),
         ("w_wr", ind.get("williams_r", -50) >= p.get("wr_th", -30)),
         ("w_mom", mom_val >= p.get("mom_th", 3)),
@@ -177,14 +237,42 @@ def score_stock(ind, params):
         ("w_new_high", ind.get("new_high_60", 0) == 1),
         ("w_adx", ind.get("adx", 0) >= p.get("adx_th", 25)),
         ("w_atr", ind.get("atr_pct", 0) >= p.get("atr_min", 2.0)),
+        ("w_bias", 0 <= ind.get("bias", -1) <= p.get("bias_max", 15)),
+        ("w_up_days", ind.get("up_days", 0) >= p.get("up_days_min", 3)),
+        ("w_week52", ind.get("week52_pos", 0) >= p.get("week52_min", 0.7)),
+        ("w_vol_up_days", ind.get("vol_up_days", 0) >= p.get("vol_up_days_min", 3)),
+        ("w_mom_accel", ind.get("mom_accel", -99) >= p.get("mom_accel_min", 2)),
     ]:
         w = int(p.get(key, 0))
         if w > 0 and cond: sc += w
+
     w = int(p.get("w_kd", 0))
     if w > 0:
         ok = ind["k_val"] >= p.get("kd_th", 50)
         if ok and p.get("kd_cross", 0) == 1: ok = ind.get("kd_golden_cross", 0)
         if ok: sc += w
+
+    w = int(p.get("w_macd", 0))
+    if w > 0:
+        mm = int(p.get("macd_mode", 2))
+        ok = False
+        if mm == 0:
+            ok = ind.get("macd_hist", 0) > 0 and ind.get("macd_hist_prev", 0) <= 0
+        elif mm == 1:
+            ok = ind.get("macd_line", 0) > 0
+        elif mm == 2:
+            ok = ind.get("macd_hist", 0) > 0
+        if ok: sc += w
+
+    w = int(p.get("w_obv", 0))
+    if w > 0:
+        od = int(p.get("obv_rising_days", 10))
+        od_key = min([3, 5, 10], key=lambda x: abs(x - od))
+        if ind.get(f"obv_rising_{od_key}", 0) == 1: sc += w
+
+    cg = int(p.get("consecutive_green", 0))
+    if cg >= 1 and ind.get("up_days", 0) >= cg: sc += 1
+    if p.get("gap_up", 0) == 1 and ind.get("gap_pct", 0) >= 1.0: sc += 1
     if p.get("above_ma60", 0) == 1 and ind.get("above_ma60", 0): sc += 1
     if p.get("vol_gt_yesterday", 0) == 1 and ind.get("vol_gt_yesterday", 0): sc += 1
     return sc
@@ -297,6 +385,13 @@ def main():
         if len(c) < 20: continue
         ind = compute_indicators_with_state(c, h, lo, v, states[tk])
         if ind is None: continue
+        # Gap % — 今天 open vs 快取中昨天 close
+        _td_info = market_data.get(tk, {})
+        if _td_info.get("open") and len(cs["c"]) > 0:
+            _prev_c = cs["c"][-1]
+            ind["gap_pct"] = float((_td_info["open"] / _prev_c - 1) * 100) if _prev_c > 0 else 0.0
+        else:
+            ind["gap_pct"] = 0.0
         sc = score_stock(ind, params)
         if sc >= buy_th:
             signals.append({"rank": 0, "ticker": tk, "name": market_data[tk].get("name", tk),
