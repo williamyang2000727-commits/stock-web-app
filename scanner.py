@@ -526,9 +526,19 @@ def check_sell_signals(holdings, params, market_data, history_cache, trading_dat
         # Peak price: only since buy (stored in holding, not from full cache)
         peak_price = max(h.get("peak_price", buy_price), cur_price)
 
-        # 1. Stop loss
-        if ret <= stop_loss:
-            reason = f"停損！報酬 {ret:+.1f}%（停損線 {stop_loss}%）"
+        # Breakeven: 獲利達 trigger 後，停損改為 0（保本）— 跟 GPU kernel 一致
+        effective_stop = stop_loss
+        if sp.get("use_breakeven", 0):
+            peak_gain_pct = (peak_price / buy_price - 1) * 100 if buy_price > 0 else 0
+            if peak_gain_pct >= sp.get("breakeven_trigger", 20):
+                effective_stop = 0
+
+        # 1. Stop loss (with breakeven applied)
+        if ret <= effective_stop:
+            if effective_stop == 0:
+                reason = f"保本出場！曾漲 +{peak_gain_pct:.1f}% 後跌回 {ret:+.1f}%（保本觸發 +{sp.get('breakeven_trigger', 20)}%）"
+            else:
+                reason = f"停損！報酬 {ret:+.1f}%（停損線 {stop_loss}%）"
 
         # 2. Take profit
         if reason is None and sp.get("use_take_profit", 1) and ret >= take_profit:

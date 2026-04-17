@@ -426,10 +426,19 @@ tab0, tab1, tab2, tab3 = st.tabs([signal_label, "📊 買入排行", "💼 持�
 # TAB 0: SIGNALS
 # ══════════════════════════════════════════════════════════════
 with tab0:
+    # Bug fix: scan_date 空白 fallback + 過期偵測
+    _sig_d = scan_date or trading_date
     if signal_count > 0:
-        nd = next_trading_day(scan_date, trading_cal)
+        nd = next_trading_day(_sig_d, trading_cal)
         nd_str = nd.strftime("%m/%d")
         wd = ["一", "二", "三", "四", "五", "六", "日"]
+        try:
+            _today_d = date.fromisoformat(trading_date) if trading_date else tw_today()
+            _sig_stale = nd <= _today_d and _sig_d != trading_date
+        except:
+            _sig_stale = False
+        if _sig_stale:
+            st.warning(f"⚠️ 訊號日 {_sig_d} 已過期（執行日 {nd_str} 在今天之前）— daily_scan 可能中斷，請重新整理")
 
         # SELL first (GPU order)
         for sig in user_sell_signals:
@@ -442,10 +451,12 @@ with tab0:
 
         # BUY after sell (only #1, GPU rule: 1 per day)
         for sig in user_buy_signals:
+            _sp_close = sig.get('close', 0)
+            _sp_display = f"{_sp_close} 元" if _sp_close > 0 else "（無價格）"
             st.success(
                 f"### 🎯 買入\n\n"
                 f"**{sig.get('name', '')}（{sig.get('ticker', '')}）**\n\n"
-                f"評分 {int(sig.get('score', 0))} 分 ｜ 收盤價 {sig.get('close', 0)} 元\n\n"
+                f"評分 {int(sig.get('score', 0))} 分 ｜ 收盤價 {_sp_display}\n\n"
                 f"**{nd_str}（{wd[nd.weekday()]}）13:25 前買入（D+1）**"
             )
 
@@ -454,7 +465,7 @@ with tab0:
             nd2 = next_trading_day(str(nd), trading_cal)
             st.info(f"第 2 個空位等 {nd2.strftime('%m/%d')}（{wd[nd2.weekday()]}）掃描後再買入")
 
-        st.caption(f"訊號日：{scan_date}（D）")
+        st.caption(f"訊號日：{_sig_d}（D）")
     else:
         if scan and scan.get("date"):
             if len(user_holdings) >= max_positions:
@@ -463,8 +474,9 @@ with tab0:
                 st.info("目前無任何訊號")
         else:
             st.warning("尚無掃描資料")
-    if scan_date:
-        st.caption(f"資料日期：{scan_date}")
+        # Bug fix: 原本 line 466-467 重複顯示訊號日；現在只在「無訊號」分支顯示資料日期
+        if scan_date:
+            st.caption(f"資料日期：{scan_date}")
 
 # ══════════════════════════════════════════════════════════════
 # TAB 1: BUY RANKINGS
@@ -654,6 +666,18 @@ with tab3:
         _has_swap = False
         _sp = strategy_params
         _sell_list = []  # Collect all sells first
+        _cal = _full_trading_cal or trading_cal  # Bug fix: 統一日曆 source，避免 gate 和 sum 用不同
+
+        # Bug fix: scan_date 若空白 fallback 到 trading_date，不會產生「訊號日：（D）」這種破顯示
+        _d_date = scan_date or trading_date
+        # Bug fix: 偵測過期訊號 — next_trading_day 若 <= 今天代表訊號過期
+        _nd = next_trading_day(_d_date, trading_cal)
+        _wd = ["一", "二", "三", "四", "五", "六", "日"]
+        try:
+            _today_d = date.fromisoformat(trading_date) if trading_date else tw_today()
+            _stale = _nd <= _today_d and _d_date != trading_date
+        except:
+            _stale = False
 
         for _bh in _bt_holding:
             _tk = _bh.get("ticker", "")
@@ -662,24 +686,38 @@ with tab3:
             if _tk not in market_data or _bp <= 0:
                 continue
             _cur = market_data[_tk]["close"]
+            if not _cur or _cur <= 0:  # Bug fix: bad market data shouldn't yield 0% return silently
+                continue
             _ret = (_cur / _bp - 1) * 100
             try:
-                _dh = sum(1 for d in (_full_trading_cal or trading_cal) if date.fromisoformat(_bh["buy_date"]) < d <= date.fromisoformat(scan_date)) if (trading_cal or _full_trading_cal) else 0
+                _bd = date.fromisoformat(_bh.get("buy_date", ""))
+                _upto = date.fromisoformat(_d_date) if _d_date else _today_d
+                _dh = sum(1 for d in _cal if _bd < d <= _upto) if _cal else 0
             except:
                 _dh = 0
             _pk = max(_bh.get("peak_price", _bp), _cur)
 
             _reason = None
             if _dh >= 1:
-                if _ret <= _sp.get("stop_loss", -20): _reason = f"停損 {_ret:+.1f}%"
+                # Bug fix: 加入 breakeven 邏輯（之前 app.py 和 scanner.py 都沒實作）
+                # 獲利達 trigger 後，停損變為 0（保本）— 跟 GPU kernel 一致
+                _eff_stop = _sp.get("stop_loss", -20)
+                _peak_gain = (_pk / _bp - 1) * 100 if _bp > 0 else 0
+                if _sp.get("use_breakeven", 0) and _peak_gain >= _sp.get("breakeven_trigger", 20):
+                    _eff_stop = 0
+                if _ret <= _eff_stop:
+                    _reason = f"保本出場 {_ret:+.1f}%（曾漲 +{_peak_gain:.1f}%）" if _eff_stop == 0 else f"停損 {_ret:+.1f}%"
                 if not _reason and _sp.get("use_take_profit", 1) and _ret >= _sp.get("take_profit", 80): _reason = f"停利 +{_ret:.1f}%"
                 if not _reason and _sp.get("trailing_stop", 0) > 0 and _pk > _bp * 1.01:
                     if (_cur / _pk - 1) * 100 <= -_sp["trailing_stop"]: _reason = f"移動停利 {(_cur/_pk-1)*100:.1f}%"
-                if not _reason and int(_sp.get("sell_below_ma",0))>0 and _tk in _swap_cache:
-                    _cs_c = list(_swap_cache.get(_tk,{}).get("c",[]))
-                    if len(_cs_c) > 60:
-                        _ma60v = sum(_cs_c[-61:-1])/60
-                        if _bp >= _ma60v and _cur < _ma60v: _reason = "跌破MA60"
+                # Bug fix: sell_below_ma 若 cache 沒該股，用 buy_price * 0.95 當 fallback MA60（避免靜默略過）
+                # 註：這是近似判斷，精確 MA60 需要 60 天歷史資料
+                if not _reason and int(_sp.get("sell_below_ma",0))>0:
+                    if _tk in _swap_cache:
+                        _cs_c = list(_swap_cache.get(_tk,{}).get("c",[]))
+                        if len(_cs_c) > 60:
+                            _ma60v = sum(_cs_c[-61:-1])/60
+                            if _bp >= _ma60v and _cur < _ma60v: _reason = "跌破MA60"
                 if not _reason and _sp.get("use_stagnation_exit",0):
                     _stag_d = int(_sp.get("stagnation_days",10))
                     _stag_min = _sp.get("stagnation_min_ret",5)
@@ -693,18 +731,24 @@ with tab3:
                 if not _reason and _dh >= int(_sp.get("hold_days", 30)): _reason = f"到期{_dh}天 {_ret:+.1f}%"
 
             if _reason:
-                _sell_list.append({"name": _nm, "ticker": _tk, "reason": _reason, "ret": _ret, "dh": _dh})
+                _sell_list.append({"name": _nm, "ticker": _tk, "reason": _reason, "ret": _ret, "dh": _dh, "buy_date": _bh.get("buy_date","")})
+
+        # Bug fix: 無論有沒有賣出都顯示訊號日，避免「有持倉但靜默」
+        _nd_str = _nd.strftime("%m/%d")
+        _d_display = _d_date if _d_date else "（未掃描）"
+        if _stale:
+            st.warning(f"⚠️ 訊號日 {_d_display} 晚於預期執行日 — daily_scan 可能中斷。建議按「重新整理」或等下次自動掃描。")
+        st.markdown(f"**訊號日：{_d_display}（D）→ {_nd_str}（{_wd[_nd.weekday()]}）執行（D+1）**")
 
         if _sell_list:
             _has_swap = True
-            _nd = next_trading_day(scan_date, trading_cal)
-            _nd_str = _nd.strftime("%m/%d")
-            _wd = ["一", "二", "三", "四", "五", "六", "日"]
 
             # Show all sells
             for _s in _sell_list:
+                _bd_str = _s.get("buy_date","")
+                _bd_display = f"（{_bd_str} 買）" if _bd_str else ""
                 st.error(
-                    f"**📤 賣出** {_s['name']}（{_s['ticker']}）\n\n"
+                    f"**📤 賣出** {_s['name']}（{_s['ticker']}）{_bd_display}\n\n"
                     f"原因：{_s['reason']}｜報酬 {_s['ret']:+.1f}%｜持有 {_s['dh']} 交易日"
                 )
 
@@ -714,19 +758,20 @@ with tab3:
             _buy_candidates = [s for s in scan.get("buy_signals", []) if s.get("ticker") not in _held_tks and s.get("ticker") not in _sold_tks] if scan else []
             _buy1 = _buy_candidates[0] if _buy_candidates else None
 
-            st.markdown(f"**訊號日：{scan_date}（D）→ {_nd_str}（{_wd[_nd.weekday()]}）執行（D+1）**")
-
             if _buy1:
+                _bp1 = _buy1.get('close', 0)
+                _bp_display = f"{_bp1}" if _bp1 > 0 else "（無價格）"
                 st.success(
                     f"**🎯 D+1 買入** {_buy1.get('name', '')}（{_buy1.get('ticker', '')}）\n\n"
-                    f"評分 {int(_buy1.get('score', 0))} 分｜收盤價 {_buy1.get('close', 0)}｜**{_nd_str}（{_wd[_nd.weekday()]}）13:25 前買入**"
+                    f"評分 {int(_buy1.get('score', 0))} 分｜收盤價 {_bp_display}｜**{_nd_str}（{_wd[_nd.weekday()]}）13:25 前買入**"
                 )
+            else:
+                st.info(f"⚠️ 有賣出訊號但**沒有買入候選**（可能是當前掃描結果中所有達標股都已持有）")
 
             if len(_sell_list) > 1:
                 _nd2 = next_trading_day(str(_nd), trading_cal)
                 st.info(f"第 2 個空位等 {_nd2.strftime('%m/%d')}（{_wd[_nd2.weekday()]}）掃描後再買入")
-
-        if not _has_swap:
+        else:
             st.info(f"目前沒有要換股（{len(_bt_holding)} 檔持有中，無賣出訊號）")
         st.markdown("---")
 
@@ -806,7 +851,13 @@ with tab3:
                     pk = max(h.get("peak_price", bp), cur); h["peak_price"] = pk
                     reason = None
                     if dh < 1: _new_h.append(h); continue
-                    if ret <= _sp.get("stop_loss",-20): reason = f"停損 {ret:+.1f}%"
+                    # Bug fix: backtest 延續也要用 breakeven（之前漏掉）
+                    _eff_stop_sim = _sp.get("stop_loss",-20)
+                    _peak_g_sim = (pk / bp - 1) * 100 if bp > 0 else 0
+                    if _sp.get("use_breakeven",0) and _peak_g_sim >= _sp.get("breakeven_trigger",20):
+                        _eff_stop_sim = 0
+                    if ret <= _eff_stop_sim:
+                        reason = f"保本 {ret:+.1f}%" if _eff_stop_sim == 0 else f"停損 {ret:+.1f}%"
                     if not reason and _sp.get("use_take_profit",1) and ret >= _sp.get("take_profit",80): reason = f"停利 +{ret:.1f}%"
                     if not reason and _sp.get("trailing_stop",0)>0 and pk>bp*1.01 and (cur/pk-1)*100<=-_sp["trailing_stop"]: reason = f"移動停利 {(cur/pk-1)*100:.1f}%"
                     if not reason and int(_sp.get("sell_below_ma",0))>0 and tk in _cache:
@@ -911,7 +962,8 @@ with tab3:
         try:
             _start_d = date.fromisoformat(bt_stats.get("start_date", "2022-01-01"))
             _end_d = date.fromisoformat(bt_stats.get("end_date", str(tw_today())))
-            _years = max((_end_d - _start_d).days / 365.25, 0.1)
+            # Bug fix: _years 下限從 0.1 改 1.0，避免極短回測期讓 CAGR 爆表
+            _years = max((_end_d - _start_d).days / 365.25, 1.0)
             _cagr = (_portfolio_growth ** (1 / _years) - 1) * 100 if _portfolio_growth > 0 else 0
         except:
             _cagr = 0
@@ -922,8 +974,11 @@ with tab3:
         _max_dd = 0
         for r in _rets:
             _equity *= (1 + r * _pos_size / 100)
+            # Bug fix: equity 降到 0 會讓後面 div/0；用 max 保底
+            if _equity <= 0:
+                _equity = 0.0001
             _peak_eq = max(_peak_eq, _equity)
-            _dd = (_equity / _peak_eq - 1) * 100
+            _dd = (_equity / _peak_eq - 1) * 100 if _peak_eq > 0 else 0
             _max_dd = min(_max_dd, _dd)
 
         # Sharpe Ratio (annualized, assume 252 trading days, risk-free = 0)
@@ -931,7 +986,13 @@ with tab3:
         if len(_rets) >= 2:
             _mean_r = sum(_rets) / len(_rets)
             _std_r = math.sqrt(sum((r - _mean_r) ** 2 for r in _rets) / (len(_rets) - 1))
-            _trades_per_year = 252 / _avg_hold if _avg_hold > 1 else 12
+            # Bug fix: _avg_hold fallback 從 12（猜測）改成用實際交易密度計算
+            if _avg_hold > 1:
+                _trades_per_year = 252 / _avg_hold
+            elif len(_rets) > 0 and _years > 0:
+                _trades_per_year = len(_rets) / _years  # 用實際交易密度，不是 12 魔術數
+            else:
+                _trades_per_year = 12
             _sharpe = (_mean_r / _std_r) * math.sqrt(_trades_per_year) if _std_r > 0 else 0
         else:
             _sharpe = 0
@@ -954,10 +1015,11 @@ with tab3:
         c4, c5, c6 = st.columns(3)
         c4.metric("Sharpe Ratio", f"{_sharpe:.2f}")
         c5.metric("勝率", f"{_win_rate:.1f}%")
-        c6.metric("盈虧比", f"{_wl_ratio:.2f}" if _wl_ratio < 999 else "∞")
+        # Bug fix: ∞ 閾值從 999 改成用 isfinite 判斷（profit factor 合理可達 20-100）
+        c6.metric("盈虧比", f"{_wl_ratio:.2f}" if math.isfinite(_wl_ratio) else "∞")
 
         c7, c8, c9 = st.columns(3)
-        c7.metric("Profit Factor", f"{_profit_factor:.2f}" if _profit_factor < 999 else "∞")
+        c7.metric("Profit Factor", f"{_profit_factor:.2f}" if math.isfinite(_profit_factor) else "∞")
         c8.metric("交易次數", f"{len(_completed)}")
         c9.metric("平均報酬", f"{_avg_ret:+.1f}%")
 

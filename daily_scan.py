@@ -350,7 +350,13 @@ def main():
                 pk = max(h_item.get("peak_price", bp), cur); h_item["peak_price"] = pk
                 reason = None
                 if dh < 1: new_h.append(h_item); continue
-                if ret <= sp.get("stop_loss", -20): reason = f"停損 {ret:+.1f}%"
+                # Bug fix: breakeven 保本出場（對齊 GPU kernel + scanner.py）
+                eff_stop = sp.get("stop_loss", -20)
+                peak_g = (pk / bp - 1) * 100 if bp > 0 else 0
+                if sp.get("use_breakeven", 0) and peak_g >= sp.get("breakeven_trigger", 20):
+                    eff_stop = 0
+                if ret <= eff_stop:
+                    reason = f"保本 {ret:+.1f}%" if eff_stop == 0 else f"停損 {ret:+.1f}%"
                 if not reason and sp.get("use_take_profit", 1) and ret >= sp.get("take_profit", 80): reason = f"停利 +{ret:.1f}%"
                 if not reason and sp.get("trailing_stop", 0) > 0 and pk > bp * 1.01:
                     if (cur / pk - 1) * 100 <= -sp["trailing_stop"]: reason = "移動停利"
