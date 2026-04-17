@@ -555,14 +555,10 @@ with tab2:
             buy_date_str = h.get("buy_date", "")
 
             # Trading days held (exact from TWSE calendar)
-            try:
-                _bd = date.fromisoformat(buy_date_str)
-                if trading_cal:
-                    days = sum(1 for d in trading_cal if _bd < d <= tw_today())
-                else:
-                    days = max(0, int((tw_today() - _bd).days * 5 / 7))
-            except (ValueError, TypeError):
-                days = 0
+            # 統一到 trading_days 模組
+            from trading_days import count_between
+            days = count_between(buy_date_str, str(tw_today()),
+                                  fallback_calendar=[str(d) for d in trading_cal] if trading_cal else None)
 
             # Current price: TWSE/TPEx → Gist scan → Yahoo
             cur_price = None
@@ -824,12 +820,11 @@ with tab3:
             if not _cur or _cur <= 0:  # Bug fix: bad market data shouldn't yield 0% return silently
                 continue
             _ret = (_cur / _bp - 1) * 100
-            try:
-                _bd = date.fromisoformat(_bh.get("buy_date", ""))
-                _upto = date.fromisoformat(_d_date) if _d_date else _today_d
-                _dh = sum(1 for d in _cal if _bd < d <= _upto) if _cal else 0
-            except:
-                _dh = 0
+            # 統一到 trading_days 模組
+            from trading_days import count_between
+            _upto_str = _d_date if _d_date else str(_today_d)
+            _dh = count_between(_bh.get("buy_date", ""), _upto_str,
+                                 fallback_calendar=[str(d) for d in _cal] if _cal else None)
             _pk = max(_bh.get("peak_price", _bp), _cur)
 
             _reason = None
@@ -971,8 +966,9 @@ with tab3:
                         _new_h.append(h); continue
                     bp = h["buy_price"]; cur = _dmkt[tk]["close"]
                     ret = (cur/bp-1)*100 if bp > 0 else 0
-                    try: dh = sum(1 for d in _all_cal if date.fromisoformat(h["buy_date"]) < d <= sim_day)
-                    except: dh = 0
+                    from trading_days import count_between
+                    dh = count_between(h.get("buy_date",""), str(sim_day),
+                                        fallback_calendar=[str(d) for d in _all_cal] if _all_cal else None)
                     pk = max(h.get("peak_price", bp), cur); h["peak_price"] = pk
                     if dh < 1: _new_h.append(h); continue
                     # Delegate to shared sell_rules (matches kernel 1:1)
@@ -1033,8 +1029,9 @@ with tab3:
                     cur = market_data[tk]["close"]
                     h["sell_price"] = round(cur,2)
                     h["return_pct"] = round((cur/h["buy_price"]-1)*100,1) if h["buy_price"]>0 else 0
-                    try: h["hold_days"] = sum(1 for d in _all_cal if date.fromisoformat(h["buy_date"])<d<=date.fromisoformat(trading_date))
-                    except: pass
+                    from trading_days import count_between
+                    h["hold_days"] = count_between(h.get("buy_date",""), trading_date,
+                                                    fallback_calendar=[str(d) for d in _all_cal] if _all_cal else None)
 
             bt_trades = sorted(bt_trades + sim_holdings, key=lambda t: t.get("buy_date", ""))
             # Bug fix: 只把 end_date 設到實際模擬過的最後一天，不要假裝走到今天

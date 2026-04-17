@@ -703,15 +703,11 @@ def check_sell_signals(holdings, params, market_data, history_cache, trading_dat
 
         ret = (cur_price / buy_price - 1) * 100
 
-        try:
-            buy_d = _date.fromisoformat(buy_date_str)
-            today_d = datetime.now(TW_TZ).date()
-            if trading_dates:
-                days_held = sum(1 for d in trading_dates if buy_d < d <= today_d)
-            else:
-                days_held = max(0, int((today_d - buy_d).days * 5 / 7))
-        except (ValueError, TypeError):
-            days_held = 0
+        # 統一到 trading_days（唯一真相）
+        from trading_days import count_between
+        today_d = datetime.now(TW_TZ).date()
+        _fb = [str(d) for d in trading_dates] if trading_dates else None
+        days_held = count_between(buy_date_str, str(today_d), fallback_calendar=_fb)
 
         peak_price = max(h.get("peak_price", buy_price), cur_price)
         h["peak_price"] = round(peak_price, 2)  # persist

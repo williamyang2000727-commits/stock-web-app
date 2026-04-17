@@ -262,17 +262,10 @@ def main():
             sim_holdings = [dict(t) for t in bt_data["trades"] if t.get("reason") == "持有中"]
             bt_trades = [t for t in bt_data["trades"] if t.get("reason") != "持有中"]
 
-            # 從 TWSE 抓精確交易日曆（cache 的 dates 可能有 gap，不夠準）
-            try:
-                from scanner import fetch_trading_calendar
-                _cal_dates = fetch_trading_calendar(months=6)
-                _trading_dates_list = sorted(str(d) for d in _cal_dates) if _cal_dates else []
-            except Exception:
-                _trading_dates_list = []
-            if not _trading_dates_list:
-                # Fallback: 用 cache 的 dates
-                _any_stock = next(iter(cache.values()), {})
-                _trading_dates_list = _any_stock.get("dates", [])
+            # 統一到 trading_days 模組（禁止在這裡自己寫 *5/7 近似）
+            from trading_days import count_between
+            _any_stock = next(iter(cache.values()), {})
+            _fallback_cal = _any_stock.get("dates", [])
 
             # Sell check
             new_h = []
@@ -282,16 +275,9 @@ def main():
                     new_h.append(h_item); continue
                 bp = h_item["buy_price"]; cur = market_data[tk]["close"]
                 ret = (cur / bp - 1) * 100 if bp > 0 else 0
-                # Bug fix: 用精確交易日計數（之前 *5/7 近似會算錯）
+                # 用 trading_days 模組算（不准自己寫近似）
                 bd_str = h_item.get("buy_date", "")
-                if _trading_dates_list and bd_str:
-                    dh = sum(1 for d in _trading_dates_list if bd_str < d <= trading_date)
-                else:
-                    try:
-                        bd = date.fromisoformat(bd_str)
-                        dh = max(0, int((date.fromisoformat(trading_date) - bd).days * 5 / 7))
-                    except:
-                        dh = 0
+                dh = count_between(bd_str, trading_date, fallback_calendar=_fallback_cal)
                 pk = max(h_item.get("peak_price", bp), cur); h_item["peak_price"] = pk
                 if dh < 1: new_h.append(h_item); continue
                 # Delegate to shared sell_rules (matches kernel 1:1)
@@ -332,14 +318,7 @@ def main():
                     h_item["sell_price"] = round(cur, 2)
                     h_item["return_pct"] = round((cur / h_item["buy_price"] - 1) * 100, 1) if h_item["buy_price"] > 0 else 0
                     bd_str2 = h_item.get("buy_date", "")
-                    if _trading_dates_list and bd_str2:
-                        h_item["hold_days"] = sum(1 for d in _trading_dates_list if bd_str2 < d <= trading_date)
-                    else:
-                        try:
-                            bd = date.fromisoformat(bd_str2)
-                            h_item["hold_days"] = max(0, int((date.fromisoformat(trading_date) - bd).days * 5 / 7))
-                        except:
-                            pass
+                    h_item["hold_days"] = count_between(bd_str2, trading_date, fallback_calendar=_fallback_cal)
 
             all_trades = sorted(bt_trades + sim_holdings, key=lambda t: t.get("buy_date", ""))
             bt_data["trades"] = all_trades
