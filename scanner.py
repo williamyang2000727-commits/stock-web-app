@@ -150,7 +150,8 @@ def compute_indicators(c, h, lo, vol, o=None):
     for d in [3, 5, 10]:
         ind[f"momentum_{d}"] = float((c[last] / c[last - d] - 1) * 100) if last >= d else 0
 
-    h20 = float(np.max(h[last - 20:last + 1])) if n >= 21 else float(np.max(h))
+    # 近 20 日新高：排除今日（含今日會跟 w_new_high 重複）
+    h20 = float(np.max(h[last - 20:last])) if n >= 21 else (float(np.max(h[:last])) if last > 0 else float(h[last]))
     ind["near_high"] = float((c[last] / h20 - 1) * 100) if h20 > 0 else 0
     ind["new_high_60"] = 1 if n > 60 and c[last] > np.max(h[last - 60:last]) else 0
     ind["above_ma60"] = 1 if c[last] >= ind.get("ma60", c[last]) else 0
@@ -406,7 +407,8 @@ def compute_indicators_with_state(c, h, lo, vol, state, o=None):
         ind[f"momentum_{d}"] = float((c[last]/c[last-d]-1)*100) if last >= d else 0
 
     # Near high / new high from cache
-    h20 = float(np.max(h[last-20:last+1])) if n >= 21 else float(np.max(h))
+    # 近 20 日新高：排除今日（與 compute_indicators 一致）
+    h20 = float(np.max(h[last-20:last])) if n >= 21 else (float(np.max(h[:last])) if last > 0 else float(h[last]))
     ind["near_high"] = float((c[last]/h20-1)*100) if h20 > 0 else 0
     ind["new_high_60"] = 1 if n > 60 and c[last] > np.max(h[last-60:last]) else 0
     ind["above_ma60"] = 1 if c[last] >= ind.get("ma60", c[last]) else 0
