@@ -327,13 +327,15 @@ def score_stock(ind, params):
         if ok:
             sc += w
 
-    # OBV：依 obv_rising_days 參數挑對應 flag
+    # OBV：對齊 kernel 行為（gpu_cupy_evolve.py line 860）
+    # kernel 的 obv_rising 是「3/5/10 任一週期都上升」的合併 flag，
+    # 雖然 obv_rising_days 是參數但 kernel 當前實作忽略它。
+    # Web 必須匹配，否則 189 w_obv=2 在回測觸發率高、實盤觸發率低 → 行為分裂
     w = int(p.get("w_obv", 0))
     if w > 0:
-        od = int(p.get("obv_rising_days", 10))
-        # 取最接近的可用 flag（3/5/10）
-        od_key = min([3, 5, 10], key=lambda x: abs(x - od))
-        if ind.get(f"obv_rising_{od_key}", 0) == 1:
+        if (ind.get("obv_rising_3", 0) == 1
+                or ind.get("obv_rising_5", 0) == 1
+                or ind.get("obv_rising_10", 0) == 1):
             sc += w
 
     # 連續紅 K：優先用精確 consecutive_green_days（cache 有 open）→ fallback up_days 近似
