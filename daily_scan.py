@@ -322,9 +322,23 @@ def main():
 
             all_trades = sorted(bt_trades + sim_holdings, key=lambda t: t.get("buy_date", ""))
             bt_data["trades"] = all_trades
+            # Bug fix: 重算 stats（之前只更新 end_date，total_return_pct 會 stale）
+            _completed_refresh = [t for t in all_trades if t.get("reason") != "持有中"]
+            _rets_refresh = [t.get("return_pct", 0) for t in _completed_refresh]
+            _wins_refresh = [r for r in _rets_refresh if r > 0]
+            _losses_refresh = [r for r in _rets_refresh if r <= 0]
             bt_data["stats"]["end_date"] = trading_date
+            bt_data["stats"]["total_trades"] = len(_completed_refresh)
+            bt_data["stats"]["total_return_pct"] = round(sum(_rets_refresh), 1)
+            bt_data["stats"]["win_rate"] = round(len(_wins_refresh) / len(_rets_refresh) * 100, 1) if _rets_refresh else 0
+            bt_data["stats"]["avg_return"] = round(sum(_rets_refresh) / len(_rets_refresh), 1) if _rets_refresh else 0
+            bt_data["stats"]["avg_win"] = round(sum(_wins_refresh) / len(_wins_refresh), 1) if _wins_refresh else 0
+            bt_data["stats"]["avg_loss"] = round(sum(_losses_refresh) / len(_losses_refresh), 1) if _losses_refresh else 0
+            bt_data["stats"]["max_win"] = round(max(_rets_refresh), 1) if _rets_refresh else 0
+            bt_data["stats"]["max_loss"] = round(min(_rets_refresh), 1) if _rets_refresh else 0
+            bt_data["stats"]["avg_hold_days"] = round(sum(t.get("hold_days", 0) for t in _completed_refresh) / len(_completed_refresh), 1) if _completed_refresh else 0
             write_gist(DATA_GIST, "backtest_results.json", bt_data)
-            print(f"  Backtest: {len(bt_trades)} completed + {len(sim_holdings)} holding")
+            print(f"  Backtest: {len(_completed_refresh)} completed + {len(sim_holdings)} holding | 總報酬 {bt_data['stats']['total_return_pct']}% 勝率 {bt_data['stats']['win_rate']}%")
 
     print(f"Done! [{datetime.now(TW_TZ).strftime('%H:%M')}]")
 

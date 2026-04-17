@@ -1035,11 +1035,23 @@ with tab3:
 
             bt_trades = sorted(bt_trades + sim_holdings, key=lambda t: t.get("buy_date", ""))
             # Bug fix: 只把 end_date 設到實際模擬過的最後一天，不要假裝走到今天
-            # 今天的交易由 daily_scan 在 16:35 處理
             if _sim_dates:
                 _last_sim_day = _sim_dates[-1][0]
                 bt_stats["end_date"] = str(_last_sim_day)
-            # 若沒模擬（因為 _sim_dates 空，即 bt_end 已是昨天之後）→ 不動 end_date
+            # Bug fix: 和 daily_scan 一致，要重算所有 stats（之前只更新 end_date）
+            _ext_completed = [t for t in bt_trades if t.get("reason") != "持有中"]
+            _ext_rets = [t.get("return_pct", 0) for t in _ext_completed]
+            _ext_wins = [r for r in _ext_rets if r > 0]
+            _ext_losses = [r for r in _ext_rets if r <= 0]
+            bt_stats["total_trades"] = len(_ext_completed)
+            bt_stats["total_return_pct"] = round(sum(_ext_rets), 1)
+            bt_stats["win_rate"] = round(len(_ext_wins) / len(_ext_rets) * 100, 1) if _ext_rets else 0
+            bt_stats["avg_return"] = round(sum(_ext_rets) / len(_ext_rets), 1) if _ext_rets else 0
+            bt_stats["avg_win"] = round(sum(_ext_wins) / len(_ext_wins), 1) if _ext_wins else 0
+            bt_stats["avg_loss"] = round(sum(_ext_losses) / len(_ext_losses), 1) if _ext_losses else 0
+            bt_stats["max_win"] = round(max(_ext_rets), 1) if _ext_rets else 0
+            bt_stats["max_loss"] = round(min(_ext_rets), 1) if _ext_rets else 0
+            bt_stats["avg_hold_days"] = round(sum(t.get("hold_days", 0) for t in _ext_completed) / len(_ext_completed), 1) if _ext_completed else 0
             try:
                 write_gist_file("backtest_results.json",{"stats":bt_stats,"trades":bt_trades},clear_cache=False)
             except Exception as _e:
