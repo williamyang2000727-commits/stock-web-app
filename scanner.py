@@ -138,6 +138,7 @@ def compute_indicators(c, h, lo, vol):
         dv[i] = dv[i - 1] * 2 / 3 + kv[i] / 3
     ind["k_val"] = float(kv[last])
     ind["kd_golden_cross"] = 1 if kv[last] > dv[last] and (last < 1 or kv[last - 1] <= dv[last - 1]) else 0
+    ind["kd_dead_cross"] = 1 if kv[last] < dv[last] and (last < 1 or kv[last - 1] >= dv[last - 1]) else 0
 
     if n >= 15:
         h14 = float(np.max(h[last - 14:last + 1]))
@@ -370,6 +371,7 @@ def compute_indicators_with_state(c, h, lo, vol, state):
     # KD from running state
     ind["k_val"] = state["kd_k"]
     ind["kd_golden_cross"] = 1 if state["kd_k"] > state["kd_d"] and state["kd_k_prev"] <= state["kd_d_prev"] else 0
+    ind["kd_dead_cross"] = 1 if state["kd_k"] < state["kd_d"] and state["kd_k_prev"] >= state["kd_d_prev"] else 0
 
     # Williams %R from cache (only needs 15 days)
     if n >= 15:
@@ -639,10 +641,10 @@ def fetch_trading_calendar(months=3):
 
 
 def check_sell_signals(holdings, params, market_data, history_cache, trading_dates=None):
-    """Check sell conditions for user's holdings."""
+    """Check sell conditions for user's holdings. Uses shared sell_rules."""
     from datetime import date as _date
+    from sell_rules import should_sell
     signals = []
-    sp = params
     cache_stocks = history_cache.get("stocks", {}) if history_cache else {}
 
     for h in holdings:
@@ -654,7 +656,6 @@ def check_sell_signals(holdings, params, market_data, history_cache, trading_dat
         if not buy_price or not ticker:
             continue
 
-        # Current price
         cur_price = None
         if market_data and ticker in market_data:
             cur_price = market_data[ticker]["close"]
@@ -663,7 +664,6 @@ def check_sell_signals(holdings, params, market_data, history_cache, trading_dat
 
         ret = (cur_price / buy_price - 1) * 100
 
-        # Exact trading days (from TWSE calendar)
         try:
             buy_d = _date.fromisoformat(buy_date_str)
             today_d = datetime.now(TW_TZ).date()
@@ -674,85 +674,34 @@ def check_sell_signals(holdings, params, market_data, history_cache, trading_dat
         except (ValueError, TypeError):
             days_held = 0
 
-        # Skip sell checks on buy day (matching GPU: dh < 1 → skip)
+        peak_price = max(h.get("peak_price", buy_price), cur_price)
+        h["peak_price"] = round(peak_price, 2)  # persist
+
         if days_held < 1:
-            h["peak_price"] = round(max(h.get("peak_price", buy_price), cur_price), 2)
             continue
 
-        stop_loss = sp.get("stop_loss", -20)
-        take_profit = sp.get("take_profit", 80)
-        hold_days = sp.get("hold_days", 30)
-        trailing_stop = sp.get("trailing_stop", 0)
-        reason = None
-
-        # Peak price: only since buy (stored in holding, not from full cache)
-        peak_price = max(h.get("peak_price", buy_price), cur_price)
-
-        # Breakeven: 獲利達 trigger 後，停損改為 0（保本）— 跟 GPU kernel 一致
-        effective_stop = stop_loss
-        if sp.get("use_breakeven", 0):
-            peak_gain_pct = (peak_price / buy_price - 1) * 100 if buy_price > 0 else 0
-            if peak_gain_pct >= sp.get("breakeven_trigger", 20):
-                effective_stop = 0
-
-        # 1. Stop loss (with breakeven applied)
-        if ret <= effective_stop:
-            if effective_stop == 0:
-                reason = f"保本出場！曾漲 +{peak_gain_pct:.1f}% 後跌回 {ret:+.1f}%（保本觸發 +{sp.get('breakeven_trigger', 20)}%）"
-            else:
-                reason = f"停損！報酬 {ret:+.1f}%（停損線 {stop_loss}%）"
-
-        # 2. Take profit
-        if reason is None and sp.get("use_take_profit", 1) and ret >= take_profit:
-            reason = f"停利！報酬 +{ret:.1f}%（目標 +{take_profit}%）"
-
-        # 3. Trailing stop (移動停利) — peak must be meaningfully above buy
-        if reason is None and trailing_stop > 0 and peak_price > buy_price * 1.01:
-            dd = (cur_price / peak_price - 1) * 100
-            if dd <= -trailing_stop:
-                reason = f"移動停利！從高點 {peak_price:.1f} 回撤 {dd:.1f}%（門檻 -{trailing_stop}%），報酬 {ret:+.1f}%"
-
-        # 4. Below MA60 — only if bought ABOVE MA60 (otherwise user chose to buy below)
-        if reason is None and int(sp.get("sell_below_ma", 0)) > 0 and ticker in cache_stocks:
+        # Compute indicators for this holding (for RSI/MACD/KD/vol/mom sell conditions)
+        ind = None
+        cache_closes = None
+        if ticker in cache_stocks:
             cs = cache_stocks[ticker]
-            closes = list(cs["c"])
+            cache_closes = list(cs["c"])
             if ticker in market_data:
-                closes = closes + [market_data[ticker]["close"]]
-            if len(closes) > 60:
-                ma60 = float(np.mean(closes[-61:-1]))
-                if buy_price >= ma60 and cur_price < ma60:
-                    reason = f"跌破 MA60！現價 {cur_price:.1f} < MA60 {ma60:.1f}，報酬 {ret:+.1f}%"
+                cache_closes = cache_closes + [market_data[ticker]["close"]]
+            # Only compute indicators if strategy uses advanced sell conditions
+            if any(params.get(k, 0) for k in ("use_rsi_sell", "use_macd_sell", "use_kd_sell", "sell_vol_shrink", "use_mom_exit")):
+                try:
+                    c_arr = np.array(cache_closes, dtype=np.float64)
+                    h_arr = np.array(list(cs["h"]) + [market_data[ticker]["high"]] if ticker in market_data else list(cs["h"]), dtype=np.float64)
+                    l_arr = np.array(list(cs["l"]) + [market_data[ticker]["low"]] if ticker in market_data else list(cs["l"]), dtype=np.float64)
+                    v_arr = np.array(list(cs["v"]) + [market_data[ticker]["vol"]] if ticker in market_data else list(cs["v"]), dtype=np.float64)
+                    if len(c_arr) >= 20:
+                        ind = compute_indicators(c_arr, h_arr, l_arr, v_arr)
+                except Exception:
+                    ind = None
 
-        # 5. Stagnation exit — use trading days
-        if reason is None and sp.get("use_stagnation_exit", 0):
-            stag_days = int(sp.get("stagnation_days", 10))
-            stag_min = sp.get("stagnation_min_ret", 5)
-            if days_held >= stag_days and ret < stag_min:
-                reason = f"停滯出場！持有 {days_held} 交易日報酬僅 {ret:+.1f}%"
-
-        # 6. Time decay (gradual profit requirement) — use trading days (GPU order: before profit lock)
-        if reason is None and sp.get("use_time_decay", 0):
-            rpd = sp.get("ret_per_day", 0.5)
-            hd_half = int(hold_days) // 2
-            if days_held >= hd_half:
-                min_req = (days_held - hd_half) * rpd
-                if ret < min_req:
-                    reason = f"漸進停利！持有 {days_held} 交易日報酬 {ret:+.1f}%，低於期望 +{min_req:.1f}%"
-
-        # 7. Profit lock (鎖利) — peak must have actually reached trigger
-        if reason is None and sp.get("use_profit_lock", 0):
-            lt = sp.get("lock_trigger", 30)
-            lf = sp.get("lock_floor", 10)
-            peak_gain = (peak_price / buy_price - 1) * 100
-            if peak_gain >= lt and ret < lf:
-                reason = f"鎖利出場！曾漲 +{peak_gain:.1f}% 但跌回 +{ret:.1f}%（鎖利線 +{lf}%）"
-
-        # 8. Max hold days — use trading days
-        if reason is None and days_held >= hold_days:
-            reason = f"持有已達 {days_held} 交易日（上限 {hold_days}），報酬 {ret:+.1f}%"
-
-        # Update peak_price in holding (for persistent tracking)
-        h["peak_price"] = round(peak_price, 2)
+        reason = should_sell(buy_price, cur_price, peak_price, days_held, params,
+                              cache_closes=cache_closes, indicators=ind)
 
         if reason:
             signals.append({

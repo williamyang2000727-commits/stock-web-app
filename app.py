@@ -699,36 +699,10 @@ with tab3:
 
             _reason = None
             if _dh >= 1:
-                # Bug fix: 加入 breakeven 邏輯（之前 app.py 和 scanner.py 都沒實作）
-                # 獲利達 trigger 後，停損變為 0（保本）— 跟 GPU kernel 一致
-                _eff_stop = _sp.get("stop_loss", -20)
-                _peak_gain = (_pk / _bp - 1) * 100 if _bp > 0 else 0
-                if _sp.get("use_breakeven", 0) and _peak_gain >= _sp.get("breakeven_trigger", 20):
-                    _eff_stop = 0
-                if _ret <= _eff_stop:
-                    _reason = f"保本出場 {_ret:+.1f}%（曾漲 +{_peak_gain:.1f}%）" if _eff_stop == 0 else f"停損 {_ret:+.1f}%"
-                if not _reason and _sp.get("use_take_profit", 1) and _ret >= _sp.get("take_profit", 80): _reason = f"停利 +{_ret:.1f}%"
-                if not _reason and _sp.get("trailing_stop", 0) > 0 and _pk > _bp * 1.01:
-                    if (_cur / _pk - 1) * 100 <= -_sp["trailing_stop"]: _reason = f"移動停利 {(_cur/_pk-1)*100:.1f}%"
-                # Bug fix: sell_below_ma 若 cache 沒該股，用 buy_price * 0.95 當 fallback MA60（避免靜默略過）
-                # 註：這是近似判斷，精確 MA60 需要 60 天歷史資料
-                if not _reason and int(_sp.get("sell_below_ma",0))>0:
-                    if _tk in _swap_cache:
-                        _cs_c = list(_swap_cache.get(_tk,{}).get("c",[]))
-                        if len(_cs_c) > 60:
-                            _ma60v = sum(_cs_c[-61:-1])/60
-                            if _bp >= _ma60v and _cur < _ma60v: _reason = "跌破MA60"
-                if not _reason and _sp.get("use_stagnation_exit",0):
-                    _stag_d = int(_sp.get("stagnation_days",10))
-                    _stag_min = _sp.get("stagnation_min_ret",5)
-                    if _dh >= _stag_d and _ret < _stag_min: _reason = "停滯出場"
-                if not _reason and _sp.get("use_time_decay", 0):
-                    _hh = int(_sp.get("hold_days", 30)) // 2
-                    if _dh >= _hh and _ret < (_dh - _hh) * _sp.get("ret_per_day", 0.5): _reason = "漸進停利"
-                if not _reason and _sp.get("use_profit_lock", 0):
-                    _pg = (_pk / _bp - 1) * 100
-                    if _pg >= _sp.get("lock_trigger", 30) and _ret < _sp.get("lock_floor", 10): _reason = "鎖利"
-                if not _reason and _dh >= int(_sp.get("hold_days", 30)): _reason = f"到期{_dh}天 {_ret:+.1f}%"
+                # Delegate to shared sell_rules (matches kernel 1:1, same as scanner/daily_scan)
+                from sell_rules import should_sell
+                _cs_c = list(_swap_cache.get(_tk,{}).get("c",[])) if _tk in _swap_cache else None
+                _reason = should_sell(_bp, _cur, _pk, _dh, _sp, cache_closes=_cs_c, indicators=None)
 
             if _reason:
                 _sell_list.append({"name": _nm, "ticker": _tk, "reason": _reason, "ret": _ret, "dh": _dh, "buy_date": _bh.get("buy_date","")})
@@ -849,33 +823,11 @@ with tab3:
                     try: dh = sum(1 for d in _all_cal if date.fromisoformat(h["buy_date"]) < d <= sim_day)
                     except: dh = 0
                     pk = max(h.get("peak_price", bp), cur); h["peak_price"] = pk
-                    reason = None
                     if dh < 1: _new_h.append(h); continue
-                    # Bug fix: backtest 延續也要用 breakeven（之前漏掉）
-                    _eff_stop_sim = _sp.get("stop_loss",-20)
-                    _peak_g_sim = (pk / bp - 1) * 100 if bp > 0 else 0
-                    if _sp.get("use_breakeven",0) and _peak_g_sim >= _sp.get("breakeven_trigger",20):
-                        _eff_stop_sim = 0
-                    if ret <= _eff_stop_sim:
-                        reason = f"保本 {ret:+.1f}%" if _eff_stop_sim == 0 else f"停損 {ret:+.1f}%"
-                    if not reason and _sp.get("use_take_profit",1) and ret >= _sp.get("take_profit",80): reason = f"停利 +{ret:.1f}%"
-                    if not reason and _sp.get("trailing_stop",0)>0 and pk>bp*1.01 and (cur/pk-1)*100<=-_sp["trailing_stop"]: reason = f"移動停利 {(cur/pk-1)*100:.1f}%"
-                    if not reason and int(_sp.get("sell_below_ma",0))>0 and tk in _cache:
-                        _cs_c = list(_cache[tk]["c"])
-                        if len(_cs_c) > 60:
-                            _ma60 = sum(_cs_c[-61:-1])/60
-                            if bp >= _ma60 and cur < _ma60: reason = "跌破MA60"
-                    if not reason and _sp.get("use_stagnation_exit",0):
-                        _stag_d = int(_sp.get("stagnation_days",10))
-                        _stag_min = _sp.get("stagnation_min_ret",5)
-                        if dh >= _stag_d and ret < _stag_min: reason = "停滯出場"
-                    if not reason and _sp.get("use_time_decay",0):
-                        hh=int(_sp.get("hold_days",30))//2
-                        if dh>=hh and ret<(dh-hh)*_sp.get("ret_per_day",0.5): reason="漸進停利"
-                    if not reason and _sp.get("use_profit_lock",0):
-                        pg=(pk/bp-1)*100
-                        if pg>=_sp.get("lock_trigger",30) and ret<_sp.get("lock_floor",10): reason="鎖利"
-                    if not reason and dh>=int(_sp.get("hold_days",30)): reason=f"到期{dh}天 {ret:+.1f}%"
+                    # Delegate to shared sell_rules (matches kernel 1:1)
+                    from sell_rules import should_sell
+                    _cs_c_sim = list(_cache[tk]["c"]) if tk in _cache else None
+                    reason = should_sell(bp, cur, pk, dh, _sp, cache_closes=_cs_c_sim, indicators=None)
                     if reason:
                         bt_trades.append({"ticker":tk,"name":h.get("name",""),"buy_price":bp,
                             "sell_price":round(cur,2),"hold_days":dh,"return_pct":round(ret,1),
