@@ -986,9 +986,21 @@ with tab3:
                     _cs_c_sim = list(_cache[tk]["c"]) if tk in _cache else None
                     reason = should_sell(bp, cur, pk, dh, _sp, cache_closes=_cs_c_sim, indicators=None)
                     if reason:
+                        # 理由格式統一（去掉 % 數，跟 GPU 一致）
+                        for _pf, _cl in [("移動停利","移動停利"),("保本","保本出場"),("停損","停損"),
+                                          ("停利","停利"),("跌破","跌破均線"),("停滯","停滯出場"),
+                                          ("漸進","漸進停利"),("鎖利","鎖利出場"),("動量","動量反轉"),
+                                          ("到期","到期"),("RSI","RSI超買"),("MACD","MACD死叉"),
+                                          ("KD","KD死叉"),("量能","量縮")]:
+                            if reason.startswith(_pf):
+                                reason = _cl; break
+                        # D+1 執行日（GPU sell 在 D+1 open）
+                        _next_sim = sim_day + timedelta(days=1)
+                        while _next_sim.weekday() >= 5:
+                            _next_sim += timedelta(days=1)
                         bt_trades.append({"ticker":tk,"name":h.get("name",""),"buy_price":bp,
                             "sell_price":round(cur,2),"hold_days":dh,"return_pct":round(ret,1),
-                            "reason":reason,"buy_date":h["buy_date"],"sell_date":sd_str})
+                            "reason":reason,"buy_date":h["buy_date"],"sell_date":str(_next_sim)})
                     else: _new_h.append(h)
                 sim_holdings = _new_h
 
@@ -1028,8 +1040,12 @@ with tab3:
                     if _sigs:
                         _sigs.sort(key=lambda x:(x["sc"],x.get("vol_ratio",0)),reverse=True)
                         for s in _sigs[:1]:  # Only buy #1 per day (matching GPU)
+                            # D+1 執行日（GPU buy 在 D+1 close）
+                            _next_buy = sim_day + timedelta(days=1)
+                            while _next_buy.weekday() >= 5:
+                                _next_buy += timedelta(days=1)
                             sim_holdings.append({"ticker":s["tk"],"name":s["name"],"buy_price":s["price"],
-                                "buy_date":sd_str,"peak_price":s["price"],"sell_price":s["price"],
+                                "buy_date":str(_next_buy),"peak_price":s["price"],"sell_price":s["price"],
                                 "hold_days":0,"return_pct":0,"reason":"持有中"})
 
             # Update holding with latest prices

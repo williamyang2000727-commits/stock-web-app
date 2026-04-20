@@ -281,7 +281,26 @@ def main():
             _any_stock = next(iter(cache.values()), {})
             _fallback_cal = _any_stock.get("dates", [])
 
-            # Sell check
+            # D+1 執行日（GPU 的 sell/buy 都在 D+1，不是 D 當天）
+            from datetime import date as _dt, timedelta as _td
+            _td_parsed = _dt.fromisoformat(trading_date)
+            _next_td = _td_parsed + _td(days=1)
+            while _next_td.weekday() >= 5:
+                _next_td += _td(days=1)
+            _exec_date = str(_next_td)  # D+1 = 實際執行日
+
+            # 理由格式統一（sell_rules 回傳帶 % 的詳細字串，GPU 用乾淨名稱）
+            def _clean_reason(r):
+                for _pf, _cl in [("移動停利","移動停利"),("保本","保本出場"),("停損","停損"),
+                                  ("停利","停利"),("跌破","跌破均線"),("停滯","停滯出場"),
+                                  ("漸進","漸進停利"),("鎖利","鎖利出場"),("動量","動量反轉"),
+                                  ("到期","到期"),("RSI","RSI超買"),("MACD","MACD死叉"),
+                                  ("KD","KD死叉"),("量能","量縮")]:
+                    if r.startswith(_pf):
+                        return _cl
+                return r
+
+            # Sell check（D 日收盤檢查，D+1 執行）
             new_h = []
             for h_item in sim_holdings:
                 tk = h_item.get("ticker", "")
@@ -289,39 +308,38 @@ def main():
                     new_h.append(h_item); continue
                 bp = h_item["buy_price"]; cur = market_data[tk]["close"]
                 ret = (cur / bp - 1) * 100 if bp > 0 else 0
-                # 用 trading_days 模組算（不准自己寫近似）
                 bd_str = h_item.get("buy_date", "")
                 dh = count_between(bd_str, trading_date, fallback_calendar=_fallback_cal)
                 pk = max(h_item.get("peak_price", bp), cur); h_item["peak_price"] = pk
                 if dh < 1: new_h.append(h_item); continue
-                # Delegate to shared sell_rules (matches kernel 1:1)
                 from sell_rules import should_sell
                 cache_c = list(cache[tk]["c"]) if tk in cache else None
                 if cache_c is not None and tk in market_data:
                     cache_c = cache_c + [market_data[tk]["close"]]
                 reason = should_sell(bp, cur, pk, dh, sp, cache_closes=cache_c, indicators=None)
                 if reason:
+                    reason = _clean_reason(reason)
                     bt_trades.append({"ticker": tk, "name": h_item.get("name", ""), "buy_price": round(bp, 2),
                                       "sell_price": round(cur, 2), "hold_days": dh, "return_pct": round(ret, 1),
-                                      "reason": reason, "buy_date": h_item["buy_date"], "sell_date": trading_date})
+                                      "reason": reason, "buy_date": h_item["buy_date"], "sell_date": _exec_date})
                     print(f"  SELL {h_item.get('name', '')} {reason}")
                 else:
                     new_h.append(h_item)
             sim_holdings = new_h
 
-            # Buy check (exclude stocks just sold today)
-            _just_sold = {t["ticker"] for t in bt_trades if t.get("sell_date") == trading_date}
+            # Buy check（D 日掃描，D+1 執行 — 排除今天賣的）
+            _just_sold = {t["ticker"] for t in bt_trades if t.get("sell_date") == _exec_date}
             if len(sim_holdings) < max_pos and signals:
                 held_tks = {h_item["ticker"] for h_item in sim_holdings} | _just_sold
                 for sig in signals:
                     if sig["ticker"] not in held_tks:
                         sim_holdings.append({
                             "ticker": sig["ticker"], "name": sig["name"],
-                            "buy_price": sig["close"], "buy_date": trading_date,
+                            "buy_price": sig["close"], "buy_date": _exec_date,
                             "peak_price": sig["close"], "sell_price": sig["close"],
                             "hold_days": 0, "return_pct": 0, "reason": "持有中",
                         })
-                        print(f"  BUY {sig['name']} {sig['score']}分")
+                        print(f"  BUY {sig['name']} {sig['score']}分 (D+1={_exec_date})")
                         break  # Only buy #1 per day (matching GPU)
 
             # Update holdings prices + hold_days（用精確交易日計數）
