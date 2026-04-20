@@ -436,7 +436,7 @@ with tab0:
         _tab0_is_trading = date.fromisoformat(trading_date) in (_full_trading_cal or trading_cal or set())
     except:
         _tab0_is_trading = False
-    if user_holdings and market_data and _tab0_is_trading:
+    if user_holdings and market_data and len(market_data) >= 500 and _tab0_is_trading:
         _user_cache = history_cache.get("stocks", {}) if history_cache else {}
         for _uh in user_holdings:
             _utk = _uh.get("ticker", "")
@@ -738,7 +738,7 @@ with tab3:
         _today_is_trading = date.fromisoformat(trading_date) in (_full_trading_cal or trading_cal or set())
     except:
         _today_is_trading = False
-    if _bt_holding and market_data and _today_is_trading:
+    if _bt_holding and market_data and len(market_data) >= 500 and _today_is_trading:
         for _bh in _bt_holding:
             _tk = _bh.get("ticker", "")
             _nm = _bh.get("name", _tk)
