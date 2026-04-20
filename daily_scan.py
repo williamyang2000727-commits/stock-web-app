@@ -262,10 +262,11 @@ def main():
         "sell_signals": [],
         "holdings_status": [],
         "market_summary": {"twse_count": twse_n, "otc_count": otc_n, "scan_count": 100},
+        "pending_sells": [],
+        "pending_buy": None,
     }
-    write_gist(DATA_GIST, "scan_results.json", scan_results)
 
-    # 7. Backtest extension
+    # 7. Backtest extension (2-phase pending mechanism)
     bt_data = data_gist.get("backtest_results.json", {})
     if bt_data and bt_data.get("trades"):
         bt_end = bt_data["stats"].get("end_date", "")
@@ -277,20 +278,10 @@ def main():
             sim_holdings = [dict(t) for t in bt_data["trades"] if t.get("reason") == "持有中"]
             bt_trades = [t for t in bt_data["trades"] if t.get("reason") != "持有中"]
 
-            # 統一到 trading_days 模組（禁止在這裡自己寫 *5/7 近似）
             from trading_days import count_between
             _any_stock = next(iter(cache.values()), {})
             _fallback_cal = _any_stock.get("dates", [])
 
-            # D+1 執行日（GPU 的 sell/buy 都在 D+1，不是 D 當天）
-            from datetime import date as _dt, timedelta as _td
-            _td_parsed = _dt.fromisoformat(trading_date)
-            _next_td = _td_parsed + _td(days=1)
-            while _next_td.weekday() >= 5:
-                _next_td += _td(days=1)
-            _exec_date = str(_next_td)  # D+1 = 實際執行日
-
-            # 理由格式統一（sell_rules 回傳帶 % 的詳細字串，GPU 用乾淨名稱）
             def _clean_reason(r):
                 for _pf, _cl in [("移動停利","移動停利"),("保本","保本出場"),("停損","停損"),
                                   ("停利","停利"),("跌破","跌破均線"),("停滯","停滯出場"),
@@ -301,71 +292,92 @@ def main():
                         return _cl
                 return r
 
-            # Sell check（D 日收盤檢查，D+1 執行）
-            new_h = []
-            for h_item in sim_holdings:
-                tk = h_item.get("ticker", "")
-                if tk not in market_data:
-                    new_h.append(h_item); continue
-                bp = h_item["buy_price"]; cur = market_data[tk]["close"]
-                ret = (cur / bp - 1) * 100 if bp > 0 else 0
-                bd_str = h_item.get("buy_date", "")
-                dh = count_between(bd_str, trading_date, fallback_calendar=_fallback_cal)
-                pk = max(h_item.get("peak_price", bp), cur); h_item["peak_price"] = pk
-                if dh < 1: new_h.append(h_item); continue
-                from sell_rules import should_sell
+            # === Phase A: Execute YESTERDAY's pending (with TODAY's actual prices) ===
+            prev_scan = data_gist.get("scan_results.json", {})
+            _pending_sells = prev_scan.get("pending_sells", [])
+            _pending_buy = prev_scan.get("pending_buy", None)
+
+            if _pending_sells:
+                for ps in _pending_sells:
+                    tk = ps["ticker"]
+                    for i, h in enumerate(sim_holdings):
+                        if h["ticker"] == tk and tk in market_data:
+                            cur = market_data[tk]["close"]
+                            ret = (cur / h["buy_price"] - 1) * 100 if h["buy_price"] > 0 else 0
+                            dh = count_between(h.get("buy_date", ""), trading_date, fallback_calendar=_fallback_cal)
+                            bt_trades.append({
+                                "ticker": tk, "name": h.get("name", ""),
+                                "buy_price": round(h["buy_price"], 2),
+                                "sell_price": round(cur, 2), "hold_days": dh,
+                                "return_pct": round(ret, 1),
+                                "reason": ps["reason"],
+                                "buy_date": h["buy_date"], "sell_date": trading_date})
+                            sim_holdings.pop(i)
+                            print(f"  EXEC SELL {h.get('name', '')} {ps['reason']} @{cur}")
+                            break
+
+            if _pending_buy and len(sim_holdings) < max_pos:
+                tk = _pending_buy["ticker"]
+                _sold_today = {t["ticker"] for t in bt_trades if t.get("sell_date") == trading_date}
+                if tk not in _sold_today and tk in market_data:
+                    cur = market_data[tk]["close"]
+                    sim_holdings.append({
+                        "ticker": tk, "name": _pending_buy.get("name", ""),
+                        "buy_price": cur, "buy_date": trading_date,
+                        "peak_price": cur, "sell_price": cur,
+                        "hold_days": 0, "return_pct": 0, "reason": "持有中"})
+                    print(f"  EXEC BUY {_pending_buy.get('name', '')} @{cur}")
+
+            # === Phase B: Generate TODAY's pending (for tomorrow) ===
+            _new_pending_sells = []
+            _new_pending_buy = None
+
+            from sell_rules import should_sell
+            for h in sim_holdings:
+                tk = h.get("ticker", "")
+                if tk not in market_data: continue
+                bp = h["buy_price"]; cur = market_data[tk]["close"]
+                dh = count_between(h.get("buy_date", ""), trading_date, fallback_calendar=_fallback_cal)
+                pk = max(h.get("peak_price", bp), cur); h["peak_price"] = pk
+                if dh < 1: continue
                 cache_c = list(cache[tk]["c"]) if tk in cache else None
                 if cache_c is not None and tk in market_data:
                     cache_c = cache_c + [market_data[tk]["close"]]
                 reason = should_sell(bp, cur, pk, dh, sp, cache_closes=cache_c, indicators=None)
                 if reason:
-                    reason = _clean_reason(reason)
-                    bt_trades.append({"ticker": tk, "name": h_item.get("name", ""), "buy_price": round(bp, 2),
-                                      "sell_price": round(cur, 2), "hold_days": dh, "return_pct": round(ret, 1),
-                                      "reason": reason, "buy_date": h_item["buy_date"], "sell_date": _exec_date})
-                    print(f"  SELL {h_item.get('name', '')} {reason}")
-                else:
-                    new_h.append(h_item)
-            sim_holdings = new_h
+                    _new_pending_sells.append({
+                        "ticker": tk, "name": h.get("name", ""),
+                        "reason": _clean_reason(reason)})
 
-            # Buy check（用「前一天」的掃描候選，不是今天的 — 跟 GPU 一致）
-            # GPU: Day D 掃描 #1 → Day D+1 買入。daily_scan 在 D+1 跑，
-            # 所以該用 D（昨天 = Gist 上還沒被覆蓋的 scan_results）的 #1。
-            _prev_scan = data_gist.get("scan_results.json", {})
-            _prev_signals = _prev_scan.get("buy_signals", [])
-            _buy_candidates = _prev_signals if _prev_signals else signals  # fallback 到今天
-            _buy_source = "prev" if _prev_signals else "today"
-            _just_sold = {t["ticker"] for t in bt_trades if t.get("sell_date") == _exec_date}
-            if len(sim_holdings) < max_pos and _buy_candidates:
-                held_tks = {h_item["ticker"] for h_item in sim_holdings} | _just_sold
-                for sig in _buy_candidates:
-                    if sig["ticker"] not in held_tks:
-                        # 買入價用今天的收盤（D+1 close，最接近實際執行價）
-                        _buy_price = sig["close"]
-                        if sig["ticker"] in market_data:
-                            _buy_price = market_data[sig["ticker"]]["close"]
-                        sim_holdings.append({
+            if _new_pending_sells:
+                _sold_tks = {ps["ticker"] for ps in _new_pending_sells}
+                _held_tks = {h["ticker"] for h in sim_holdings} - _sold_tks
+                for sig in signals:
+                    if sig["ticker"] not in _held_tks and sig["ticker"] not in _sold_tks:
+                        _new_pending_buy = {
                             "ticker": sig["ticker"], "name": sig["name"],
-                            "buy_price": _buy_price, "buy_date": _exec_date,
-                            "peak_price": _buy_price, "sell_price": _buy_price,
-                            "hold_days": 0, "return_pct": 0, "reason": "持有中",
-                        })
-                        print(f"  BUY {sig['name']} {sig.get('score','')}分 (src={_buy_source}, exec={_exec_date})")
-                        break  # Only buy #1 per day (matching GPU)
+                            "score": sig.get("score", 0), "close": sig["close"]}
+                        break
 
-            # Update holdings prices + hold_days（用精確交易日計數）
+            # Save pending in scan_results (for tomorrow)
+            scan_results["pending_sells"] = _new_pending_sells
+            scan_results["pending_buy"] = _new_pending_buy
+            if _new_pending_sells:
+                print(f"  PENDING SELL: {[ps['name'] for ps in _new_pending_sells]}")
+                if _new_pending_buy:
+                    print(f"  PENDING BUY: {_new_pending_buy['name']} (tomorrow)")
+
+            # Update holdings prices (no sell/buy on today, just price refresh)
             for h_item in sim_holdings:
                 tk = h_item["ticker"]
                 if tk in market_data:
                     cur = market_data[tk]["close"]
                     h_item["sell_price"] = round(cur, 2)
                     h_item["return_pct"] = round((cur / h_item["buy_price"] - 1) * 100, 1) if h_item["buy_price"] > 0 else 0
-                    bd_str2 = h_item.get("buy_date", "")
-                    h_item["hold_days"] = count_between(bd_str2, trading_date, fallback_calendar=_fallback_cal)
+                    h_item["hold_days"] = count_between(h_item.get("buy_date", ""), trading_date, fallback_calendar=_fallback_cal)
 
             all_trades = sorted(bt_trades + sim_holdings, key=lambda t: t.get("buy_date", ""))
             bt_data["trades"] = all_trades
-            # Bug fix: 重算 stats（之前只更新 end_date，total_return_pct 會 stale）
             _completed_refresh = [t for t in all_trades if t.get("reason") != "持有中"]
             _rets_refresh = [t.get("return_pct", 0) for t in _completed_refresh]
             _wins_refresh = [r for r in _rets_refresh if r > 0]
@@ -381,7 +393,10 @@ def main():
             bt_data["stats"]["max_loss"] = round(min(_rets_refresh), 1) if _rets_refresh else 0
             bt_data["stats"]["avg_hold_days"] = round(sum(t.get("hold_days", 0) for t in _completed_refresh) / len(_completed_refresh), 1) if _completed_refresh else 0
             write_gist(DATA_GIST, "backtest_results.json", bt_data)
-            print(f"  Backtest: {len(_completed_refresh)} completed + {len(sim_holdings)} holding | 總報酬 {bt_data['stats']['total_return_pct']}% 勝率 {bt_data['stats']['win_rate']}%")
+            print(f"  Backtest: {len(_completed_refresh)} completed + {len(sim_holdings)} holding | total {bt_data['stats']['total_return_pct']}% wr {bt_data['stats']['win_rate']}%")
+
+    # Write scan_results AFTER step 7 (includes pending fields)
+    write_gist(DATA_GIST, "scan_results.json", scan_results)
 
     print(f"Done! [{datetime.now(TW_TZ).strftime('%H:%M')}]")
 
