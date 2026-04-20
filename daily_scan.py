@@ -349,7 +349,10 @@ def main():
                         "ticker": tk, "name": h.get("name", ""),
                         "reason": _clean_reason(reason)})
 
-            if _new_pending_sells:
+            # 有空位就找買入候選（不管是賣出騰出的還是本來就空的）
+            _slots_freeing = len(_new_pending_sells)
+            _holdings_after = len(sim_holdings) - _slots_freeing
+            if _holdings_after < max_pos and signals:
                 _sold_tks = {ps["ticker"] for ps in _new_pending_sells}
                 _held_tks = {h["ticker"] for h in sim_holdings} - _sold_tks
                 for sig in signals:
@@ -364,8 +367,8 @@ def main():
             scan_results["pending_buy"] = _new_pending_buy
             if _new_pending_sells:
                 print(f"  PENDING SELL: {[ps['name'] for ps in _new_pending_sells]}")
-                if _new_pending_buy:
-                    print(f"  PENDING BUY: {_new_pending_buy['name']} (tomorrow)")
+            if _new_pending_buy:
+                print(f"  PENDING BUY: {_new_pending_buy['name']} (tomorrow)")
 
             # Update holdings prices (no sell/buy on today, just price refresh)
             for h_item in sim_holdings:
