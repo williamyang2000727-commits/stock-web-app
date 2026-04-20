@@ -868,18 +868,23 @@ with tab3:
                     f"原因：{_s['reason']}｜報酬 {_s['ret']:+.1f}%｜持有 {_s['dh']} 交易日"
                 )
 
-            # Buy: only #1 on D+1 (GPU rule: 1 per day)
-            _sold_tks = {s["ticker"] for s in _sell_list}
-            _held_tks = {h.get("ticker") for h in _bt_holding} - _sold_tks
-            _buy_candidates = [s for s in scan.get("buy_signals", []) if s.get("ticker") not in _held_tks and s.get("ticker") not in _sold_tks] if scan else []
-            _buy1 = _buy_candidates[0] if _buy_candidates else None
+            # Buy: 優先讀 daily_scan 存的 pending_buy（權威來源），fallback 到 live scan
+            _scan_data = read_gist_file("scan_results.json") if not scan else None
+            _pb = (_scan_data or {}).get("pending_buy") if _scan_data else None
+            if not _pb and scan:
+                _sold_tks = {s["ticker"] for s in _sell_list}
+                _held_tks = {h.get("ticker") for h in _bt_holding} - _sold_tks
+                _buy_candidates = [s for s in scan.get("buy_signals", []) if s.get("ticker") not in _held_tks and s.get("ticker") not in _sold_tks]
+                if _buy_candidates:
+                    _pb = {"name": _buy_candidates[0].get("name",""), "ticker": _buy_candidates[0].get("ticker",""),
+                           "score": _buy_candidates[0].get("score",0), "close": _buy_candidates[0].get("close",0)}
 
-            if _buy1:
-                _bp1 = _buy1.get('close', 0)
+            if _pb:
+                _bp1 = _pb.get('close', 0)
                 _bp_display = f"{_bp1}" if _bp1 > 0 else "（無價格）"
                 st.success(
-                    f"**🎯 D+1 買入** {_buy1.get('name', '')}（{_buy1.get('ticker', '')}）\n\n"
-                    f"評分 {int(_buy1.get('score', 0))} 分｜收盤價 {_bp_display}｜**{_nd_str}（{_wd[_nd.weekday()]}）13:25 前買入**"
+                    f"**🎯 D+1 買入** {_pb.get('name', '')}（{_pb.get('ticker', '')}）\n\n"
+                    f"評分 {int(_pb.get('score', 0))} 分｜收盤價 {_bp_display}｜**{_nd_str}（{_wd[_nd.weekday()]}）13:25 前買入**"
                 )
             else:
                 st.info(f"⚠️ 有賣出訊號但**沒有買入候選**（可能是當前掃描結果中所有達標股都已持有）")
