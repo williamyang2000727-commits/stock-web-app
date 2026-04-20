@@ -245,7 +245,8 @@ def main():
             signals.append({"rank": 0, "ticker": tk, "name": market_data[tk].get("name", tk),
                             "score": sc, "close": market_data[tk]["close"],
                             "vol_ratio": round(ind["vol_ratio"], 1)})
-    signals.sort(key=lambda x: (x["score"], x["vol_ratio"]), reverse=True)
+    # 三層排序：分數 > vol_ratio > ticker（確定性，消除 float 精度造成的排名翻轉）
+    signals.sort(key=lambda x: (x["score"], x["vol_ratio"], x.get("ticker", "")), reverse=True)
     for i, s in enumerate(signals): s["rank"] = i + 1
     print(f"  {len(signals)} signals, #1: {signals[0]['name'] if signals else 'none'}")
 

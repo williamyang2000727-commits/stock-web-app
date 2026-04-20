@@ -1038,7 +1038,7 @@ with tab3:
                                     "name":_nm or tk.replace(".TW","").replace(".TWO",""),"price":_dmkt[tk]["close"]})
                         except: continue
                     if _sigs:
-                        _sigs.sort(key=lambda x:(x["sc"],x.get("vol_ratio",0)),reverse=True)
+                        _sigs.sort(key=lambda x:(x["sc"],x.get("vol_ratio",0),x.get("tk","")),reverse=True)
                         for s in _sigs[:1]:  # Only buy #1 per day (matching GPU)
                             # D+1 執行日（GPU buy 在 D+1 close）
                             _next_buy = sim_day + timedelta(days=1)
