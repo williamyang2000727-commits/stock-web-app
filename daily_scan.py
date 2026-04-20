@@ -41,8 +41,8 @@ def write_gist(gist_id, filename, data):
 
 
 def fetch_market_data():
-    """Fetch all stocks from TWSE + TPEx"""
-    import urllib3
+    """Fetch all stocks from TWSE + TPEx with retry (each up to 3 attempts)."""
+    import urllib3, time as _time
     urllib3.disable_warnings()
     all_data = {}
     today = datetime.now(TW_TZ)
@@ -50,52 +50,66 @@ def fetch_market_data():
     date_roc = f"{today.year - 1911}/{today.month:02d}/{today.day:02d}"
     trading_date = today.strftime("%Y-%m-%d")
 
-    try:
-        r = requests.get(f"https://www.twse.com.tw/exchangeReport/STOCK_DAY_ALL?response=json&date={date_ad}",
-                         timeout=15, verify=False, headers={"User-Agent": "Mozilla/5.0"})
-        data = r.json()
-        for row in data.get("data", []):
-            try:
-                code = row[0].strip()
-                if code.startswith("00"): continue
-                vol = int(row[2].replace(",", ""))
-                c = float(row[7].replace(",", ""))
-                if vol > 0 and c > 0:
-                    if "--" in row[4] or "--" in row[5] or "--" in row[6]:
-                        o = h = lo = c
-                    else:
-                        o = float(row[4].replace(",", "")) if row[4].replace(",", "").replace(".", "").replace("-", "").isdigit() else c
-                        h = float(row[5].replace(",", "")) if row[5].replace(",", "").replace(".", "").replace("-", "").isdigit() else c
-                        lo = float(row[6].replace(",", "")) if row[6].replace(",", "").replace(".", "").replace("-", "").isdigit() else c
-                    all_data[f"{code}.TW"] = {"open": o, "high": h, "low": lo, "close": c, "vol": vol, "name": row[1].strip()}
-            except:
-                continue
-        rd = data.get("date", "")
-        if rd and len(rd) == 8:
-            trading_date = f"{rd[:4]}-{rd[4:6]}-{rd[6:8]}"
-    except:
-        pass
-
-    try:
-        r = requests.get("https://www.tpex.org.tw/web/stock/aftertrading/daily_close_quotes/stk_quote_result.php",
-                         params={"l": "zh-tw", "d": date_roc}, headers={"User-Agent": "Mozilla/5.0"},
-                         timeout=15, verify=False)
-        for t in r.json().get("tables", []):
-            for row in t.get("data", []):
+    for _attempt in range(3):
+        try:
+            r = requests.get(f"https://www.twse.com.tw/exchangeReport/STOCK_DAY_ALL?response=json&date={date_ad}",
+                             timeout=20, verify=False, headers={"User-Agent": "Mozilla/5.0"})
+            data = r.json()
+            for row in data.get("data", []):
                 try:
                     code = row[0].strip()
-                    if not code or code.startswith("00"): continue
-                    vol = int(row[8].replace(",", "")) if row[8].replace(",", "").isdigit() else 0
-                    c = float(row[2].replace(",", "")) if row[2].replace(",", "").replace(".", "").isdigit() else 0
+                    if code.startswith("00"): continue
+                    vol = int(row[2].replace(",", ""))
+                    c = float(row[7].replace(",", ""))
                     if vol > 0 and c > 0:
-                        o = float(row[4].replace(",", "")) if len(row) > 4 and row[4].replace(",", "").replace(".", "").isdigit() else c
-                        h = float(row[5].replace(",", "")) if len(row) > 5 and row[5].replace(",", "").replace(".", "").isdigit() else c
-                        lo = float(row[6].replace(",", "")) if len(row) > 6 and row[6].replace(",", "").replace(".", "").isdigit() else c
-                        all_data[f"{code}.TWO"] = {"open": o, "high": h, "low": lo, "close": c, "vol": vol, "name": row[1].strip()}
+                        if "--" in row[4] or "--" in row[5] or "--" in row[6]:
+                            o = h = lo = c
+                        else:
+                            o = float(row[4].replace(",", "")) if row[4].replace(",", "").replace(".", "").replace("-", "").isdigit() else c
+                            h = float(row[5].replace(",", "")) if row[5].replace(",", "").replace(".", "").replace("-", "").isdigit() else c
+                            lo = float(row[6].replace(",", "")) if row[6].replace(",", "").replace(".", "").replace("-", "").isdigit() else c
+                        all_data[f"{code}.TW"] = {"open": o, "high": h, "low": lo, "close": c, "vol": vol, "name": row[1].strip()}
                 except:
                     continue
-    except:
-        pass
+            rd = data.get("date", "")
+            if rd and len(rd) == 8:
+                trading_date = f"{rd[:4]}-{rd[4:6]}-{rd[6:8]}"
+            if len([k for k in all_data if ".TW" in k and ".TWO" not in k]) >= 500:
+                break
+        except:
+            pass
+        if _attempt < 2:
+            _time.sleep(3)
+            print(f"  TWSE retry {_attempt+2}/3...")
+
+    for _attempt in range(3):
+        try:
+            r = requests.get("https://www.tpex.org.tw/web/stock/aftertrading/daily_close_quotes/stk_quote_result.php",
+                             params={"l": "zh-tw", "d": date_roc}, headers={"User-Agent": "Mozilla/5.0"},
+                             timeout=20, verify=False)
+            _otc_count = 0
+            for t in r.json().get("tables", []):
+                for row in t.get("data", []):
+                    try:
+                        code = row[0].strip()
+                        if not code or code.startswith("00"): continue
+                        vol = int(row[8].replace(",", "")) if row[8].replace(",", "").isdigit() else 0
+                        c = float(row[2].replace(",", "")) if row[2].replace(",", "").replace(".", "").isdigit() else 0
+                        if vol > 0 and c > 0:
+                            o = float(row[4].replace(",", "")) if len(row) > 4 and row[4].replace(",", "").replace(".", "").isdigit() else c
+                            h = float(row[5].replace(",", "")) if len(row) > 5 and row[5].replace(",", "").replace(".", "").isdigit() else c
+                            lo = float(row[6].replace(",", "")) if len(row) > 6 and row[6].replace(",", "").replace(".", "").isdigit() else c
+                            all_data[f"{code}.TWO"] = {"open": o, "high": h, "low": lo, "close": c, "vol": vol, "name": row[1].strip()}
+                            _otc_count += 1
+                    except:
+                        continue
+            if _otc_count >= 200:
+                break
+        except:
+            pass
+        if _attempt < 2:
+            _time.sleep(3)
+            print(f"  TPEx retry {_attempt+2}/3...")
 
     return all_data, trading_date
 

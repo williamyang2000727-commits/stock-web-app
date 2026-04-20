@@ -16,73 +16,86 @@ warnings.filterwarnings("ignore")
 
 
 def fetch_market_data():
-    """Fetch today's OHLCV from TWSE + TPEx (2 API calls)."""
+    """Fetch today's OHLCV from TWSE + TPEx with retry (each up to 3 attempts)."""
+    import time as _time
     all_data = {}
     today = datetime.now(TW_TZ)
     date_ad = today.strftime("%Y%m%d")
     date_roc = f"{today.year - 1911}/{today.month:02d}/{today.day:02d}"
     trading_date = today.strftime("%Y-%m-%d")
 
-    # TWSE
-    try:
-        r = requests.get(
-            f"https://www.twse.com.tw/exchangeReport/STOCK_DAY_ALL?response=json&date={date_ad}",
-            timeout=15, verify=False, headers={"User-Agent": "Mozilla/5.0"},
-        )
-        data = r.json()
-        for row in data.get("data", []):
-            try:
-                code = row[0].strip()
-                if code.startswith("00"):
-                    continue
-                vol = int(row[2].replace(",", ""))
-                c = float(row[7].replace(",", "").replace("--", "0"))
-                if "--" in row[4] or "--" in row[5] or "--" in row[6]:
-                    o = h = lo = c  # no OHLC, use close for all
-                else:
-                    o = float(row[4].replace(",", ""))
-                    h = float(row[5].replace(",", ""))
-                    lo = float(row[6].replace(",", ""))
-                if vol > 0 and c > 0:
-                    all_data[f"{code}.TW"] = {
-                        "open": o, "high": h, "low": lo,
-                        "close": c, "vol": vol, "name": row[1].strip(),
-                    }
-            except Exception:
-                continue
-        resp_date = data.get("date", "")
-        if resp_date and len(resp_date) == 8:
-            trading_date = f"{resp_date[:4]}-{resp_date[4:6]}-{resp_date[6:8]}"
-    except Exception:
-        pass
-
-    # TPEx
-    try:
-        r = requests.get(
-            "https://www.tpex.org.tw/web/stock/aftertrading/daily_close_quotes/stk_quote_result.php",
-            params={"l": "zh-tw", "d": date_roc},
-            headers={"User-Agent": "Mozilla/5.0"}, timeout=15, verify=False,
-        )
-        for t in r.json().get("tables", []):
-            for row in t.get("data", []):
+    # TWSE (3 attempts, 3 sec delay between retries)
+    for _attempt in range(3):
+        try:
+            r = requests.get(
+                f"https://www.twse.com.tw/exchangeReport/STOCK_DAY_ALL?response=json&date={date_ad}",
+                timeout=20, verify=False, headers={"User-Agent": "Mozilla/5.0"},
+            )
+            data = r.json()
+            for row in data.get("data", []):
                 try:
                     code = row[0].strip()
-                    if not code or code.startswith("00"):
+                    if code.startswith("00"):
                         continue
-                    vol = int(row[8].replace(",", "")) if row[8].replace(",", "").isdigit() else 0
-                    c = float(row[2].replace(",", "")) if row[2].replace(",", "").replace(".", "").isdigit() else 0
-                    o = float(row[4].replace(",", "")) if len(row) > 4 and row[4].replace(",", "").replace(".", "").isdigit() else c
-                    h = float(row[5].replace(",", "")) if len(row) > 5 and row[5].replace(",", "").replace(".", "").isdigit() else c
-                    lo = float(row[6].replace(",", "")) if len(row) > 6 and row[6].replace(",", "").replace(".", "").isdigit() else c
+                    vol = int(row[2].replace(",", ""))
+                    c = float(row[7].replace(",", "").replace("--", "0"))
+                    if "--" in row[4] or "--" in row[5] or "--" in row[6]:
+                        o = h = lo = c
+                    else:
+                        o = float(row[4].replace(",", ""))
+                        h = float(row[5].replace(",", ""))
+                        lo = float(row[6].replace(",", ""))
                     if vol > 0 and c > 0:
-                        all_data[f"{code}.TWO"] = {
+                        all_data[f"{code}.TW"] = {
                             "open": o, "high": h, "low": lo,
                             "close": c, "vol": vol, "name": row[1].strip(),
                         }
                 except Exception:
                     continue
-    except Exception:
-        pass
+            resp_date = data.get("date", "")
+            if resp_date and len(resp_date) == 8:
+                trading_date = f"{resp_date[:4]}-{resp_date[4:6]}-{resp_date[6:8]}"
+            if len([k for k in all_data if ".TW" in k and ".TWO" not in k]) >= 500:
+                break  # TWSE OK, enough stocks
+        except Exception:
+            pass
+        if _attempt < 2:
+            _time.sleep(3)
+
+    # TPEx (3 attempts, 3 sec delay between retries)
+    for _attempt in range(3):
+        try:
+            r = requests.get(
+                "https://www.tpex.org.tw/web/stock/aftertrading/daily_close_quotes/stk_quote_result.php",
+                params={"l": "zh-tw", "d": date_roc},
+                headers={"User-Agent": "Mozilla/5.0"}, timeout=20, verify=False,
+            )
+            _otc_count = 0
+            for t in r.json().get("tables", []):
+                for row in t.get("data", []):
+                    try:
+                        code = row[0].strip()
+                        if not code or code.startswith("00"):
+                            continue
+                        vol = int(row[8].replace(",", "")) if row[8].replace(",", "").isdigit() else 0
+                        c = float(row[2].replace(",", "")) if row[2].replace(",", "").replace(".", "").isdigit() else 0
+                        o = float(row[4].replace(",", "")) if len(row) > 4 and row[4].replace(",", "").replace(".", "").isdigit() else c
+                        h = float(row[5].replace(",", "")) if len(row) > 5 and row[5].replace(",", "").replace(".", "").isdigit() else c
+                        lo = float(row[6].replace(",", "")) if len(row) > 6 and row[6].replace(",", "").replace(".", "").isdigit() else c
+                        if vol > 0 and c > 0:
+                            all_data[f"{code}.TWO"] = {
+                                "open": o, "high": h, "low": lo,
+                                "close": c, "vol": vol, "name": row[1].strip(),
+                            }
+                            _otc_count += 1
+                    except Exception:
+                        continue
+            if _otc_count >= 200:
+                break  # TPEx OK, enough stocks
+        except Exception:
+            pass
+        if _attempt < 2:
+            _time.sleep(3)
 
     return all_data, trading_date
 
