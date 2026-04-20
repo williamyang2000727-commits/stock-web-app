@@ -842,6 +842,8 @@ with tab3:
                 # Delegate to shared sell_rules (matches kernel 1:1, same as scanner/daily_scan)
                 from sell_rules import should_sell
                 _cs_c = list(_swap_cache.get(_tk,{}).get("c",[])) if _tk in _swap_cache else None
+                if _cs_c is not None and market_data and _tk in market_data:
+                    _cs_c = _cs_c + [market_data[_tk]["close"]]  # FIX M3: append today's close for MA60
                 _reason = should_sell(_bp, _cur, _pk, _dh, _sp, cache_closes=_cs_c, indicators=None)
 
             if _reason:
@@ -1038,7 +1040,7 @@ with tab3:
                                     "name":_nm or tk.replace(".TW","").replace(".TWO",""),"price":_dmkt[tk]["close"]})
                         except: continue
                     if _sigs:
-                        _sigs.sort(key=lambda x:(x["sc"],x.get("vol_ratio",0),x.get("tk","")),reverse=True)
+                        _sigs.sort(key=lambda x:(-x["sc"],-x.get("vol_ratio",0),x.get("tk","")))
                         for s in _sigs[:1]:  # Only buy #1 per day (matching GPU)
                             # D+1 執行日（GPU buy 在 D+1 close）
                             _next_buy = sim_day + timedelta(days=1)
@@ -1078,10 +1080,9 @@ with tab3:
             bt_stats["max_win"] = round(max(_ext_rets), 1) if _ext_rets else 0
             bt_stats["max_loss"] = round(min(_ext_rets), 1) if _ext_rets else 0
             bt_stats["avg_hold_days"] = round(sum(t.get("hold_days", 0) for t in _ext_completed) / len(_ext_completed), 1) if _ext_completed else 0
-            try:
-                write_gist_file("backtest_results.json",{"stats":bt_stats,"trades":bt_trades},clear_cache=False)
-            except Exception as _e:
-                st.warning(f"⚠️ 延續交易儲存失敗：{_e}（本次顯示不影響，下次刷新時會再嘗試）")
+            # FIX C3+M5: auto-extension 只在本地顯示，不寫 Gist
+            # 避免跟 daily_scan 的 2-phase pending 機制衝突（race condition）
+            # daily_scan 是唯一寫 backtest_results 的來源
 
     if bt_stats:
         # Bug fix: 回測期間用「首筆交易」到「末筆/今天」而非「資料起始」

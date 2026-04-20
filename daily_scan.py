@@ -223,7 +223,7 @@ def main():
     buy_th = params.get("buy_threshold", 10)
     signals = []
     for tk in top100:
-        if tk not in cache or tk not in states: continue
+        if tk not in cache: continue  # FIX M7: don't require states (fallback to compute_indicators)
         cs = cache[tk]
         c = np.array(cs["c"], dtype=np.float64)
         h = np.array(cs["h"], dtype=np.float64)
@@ -231,12 +231,15 @@ def main():
         v = np.array(cs["v"], dtype=np.float64)
         if len(c) < 20: continue
         o_arr = np.array(cs["o"], dtype=np.float64) if cs.get("o") and len(cs["o"]) == len(cs["c"]) else None
-        ind = compute_indicators_with_state(c, h, lo, v, states[tk], o=o_arr)
+        if tk in states:
+            ind = compute_indicators_with_state(c, h, lo, v, states[tk], o=o_arr)
+        else:
+            ind = compute_indicators(c, h, lo, v, o=o_arr)  # FIX M7: fallback like run_scan
         if ind is None: continue
-        # Gap % — 今天 open vs 快取中昨天 close
+        # Gap % — 今天 open vs 昨天 close（cache 已 append 今天，所以昨天在 [-2]）
         _td_info = market_data.get(tk, {})
-        if _td_info.get("open") and len(cs["c"]) > 0:
-            _prev_c = cs["c"][-1]
+        if _td_info.get("open") and len(cs["c"]) > 1:
+            _prev_c = cs["c"][-2]  # FIX C2: cache 已更新，[-1]=今天，[-2]=昨天
             ind["gap_pct"] = float((_td_info["open"] / _prev_c - 1) * 100) if _prev_c > 0 else 0.0
         else:
             ind["gap_pct"] = 0.0
@@ -245,8 +248,8 @@ def main():
             signals.append({"rank": 0, "ticker": tk, "name": market_data[tk].get("name", tk),
                             "score": sc, "close": market_data[tk]["close"],
                             "vol_ratio": round(ind["vol_ratio"], 1)})
-    # 三層排序：分數 > vol_ratio > ticker（確定性，消除 float 精度造成的排名翻轉）
-    signals.sort(key=lambda x: (x["score"], x["vol_ratio"], x.get("ticker", "")), reverse=True)
+    # 三層排序：分數 > vol_ratio > ticker（ticker 正向=小代碼優先，確定性）
+    signals.sort(key=lambda x: (-x["score"], -x["vol_ratio"], x.get("ticker", "")))
     for i, s in enumerate(signals): s["rank"] = i + 1
     print(f"  {len(signals)} signals, #1: {signals[0]['name'] if signals else 'none'}")
 
@@ -302,7 +305,7 @@ def main():
                     tk = ps["ticker"]
                     for i, h in enumerate(sim_holdings):
                         if h["ticker"] == tk and tk in market_data:
-                            cur = market_data[tk]["close"]
+                            cur = market_data[tk].get("open", market_data[tk]["close"])  # FIX C1: GPU sells at D+1 open
                             ret = (cur / h["buy_price"] - 1) * 100 if h["buy_price"] > 0 else 0
                             dh = count_between(h.get("buy_date", ""), trading_date, fallback_calendar=_fallback_cal)
                             bt_trades.append({
@@ -319,7 +322,8 @@ def main():
             if _pending_buy and len(sim_holdings) < max_pos:
                 tk = _pending_buy["ticker"]
                 _sold_today = {t["ticker"] for t in bt_trades if t.get("sell_date") == trading_date}
-                if tk not in _sold_today and tk in market_data:
+                _held_tks = {h["ticker"] for h in sim_holdings}
+                if tk not in _sold_today and tk not in _held_tks and tk in market_data:  # FIX M2: no duplicates
                     cur = market_data[tk]["close"]
                     sim_holdings.append({
                         "ticker": tk, "name": _pending_buy.get("name", ""),

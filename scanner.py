@@ -655,8 +655,8 @@ def run_scan(params, held_tickers=None, history_cache=None, indicator_states=Non
         except Exception:
             continue
 
-    # 三層排序：分數 > vol_ratio > ticker（確定性，消除 float 精度造成的排名翻轉）
-    signals.sort(key=lambda x: (x["score"], x.get("vol_ratio", 0), x.get("ticker", "")), reverse=True)
+    # 三層排序：分數 > vol_ratio > ticker（ticker 正向=小代碼優先，確定性）
+    signals.sort(key=lambda x: (-x["score"], -x.get("vol_ratio", 0), x.get("ticker", "")))
 
     twse_n = len([k for k in market_data if ".TW" in k and ".TWO" not in k])
     otc_n = len([k for k in market_data if ".TWO" in k])
