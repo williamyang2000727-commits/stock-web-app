@@ -327,19 +327,29 @@ def main():
                     new_h.append(h_item)
             sim_holdings = new_h
 
-            # Buy check（D 日掃描，D+1 執行 — 排除今天賣的）
+            # Buy check（用「前一天」的掃描候選，不是今天的 — 跟 GPU 一致）
+            # GPU: Day D 掃描 #1 → Day D+1 買入。daily_scan 在 D+1 跑，
+            # 所以該用 D（昨天 = Gist 上還沒被覆蓋的 scan_results）的 #1。
+            _prev_scan = data_gist.get("scan_results.json", {})
+            _prev_signals = _prev_scan.get("buy_signals", [])
+            _buy_candidates = _prev_signals if _prev_signals else signals  # fallback 到今天
+            _buy_source = "prev" if _prev_signals else "today"
             _just_sold = {t["ticker"] for t in bt_trades if t.get("sell_date") == _exec_date}
-            if len(sim_holdings) < max_pos and signals:
+            if len(sim_holdings) < max_pos and _buy_candidates:
                 held_tks = {h_item["ticker"] for h_item in sim_holdings} | _just_sold
-                for sig in signals:
+                for sig in _buy_candidates:
                     if sig["ticker"] not in held_tks:
+                        # 買入價用今天的收盤（D+1 close，最接近實際執行價）
+                        _buy_price = sig["close"]
+                        if sig["ticker"] in market_data:
+                            _buy_price = market_data[sig["ticker"]]["close"]
                         sim_holdings.append({
                             "ticker": sig["ticker"], "name": sig["name"],
-                            "buy_price": sig["close"], "buy_date": _exec_date,
-                            "peak_price": sig["close"], "sell_price": sig["close"],
+                            "buy_price": _buy_price, "buy_date": _exec_date,
+                            "peak_price": _buy_price, "sell_price": _buy_price,
                             "hold_days": 0, "return_pct": 0, "reason": "持有中",
                         })
-                        print(f"  BUY {sig['name']} {sig['score']}分 (D+1={_exec_date})")
+                        print(f"  BUY {sig['name']} {sig.get('score','')}分 (src={_buy_source}, exec={_exec_date})")
                         break  # Only buy #1 per day (matching GPU)
 
             # Update holdings prices + hold_days（用精確交易日計數）
