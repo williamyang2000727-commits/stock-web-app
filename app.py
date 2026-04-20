@@ -498,7 +498,7 @@ with tab0:
         # If 2 sells but only 1 buy, explain the second slot
         if len(user_sell_signals) > 1 and len(user_buy_signals) <= 1:
             nd2 = next_trading_day(str(nd), trading_cal)
-            st.info(f"第 2 個空位等 {nd2.strftime('%m/%d')}（{wd[nd2.weekday()]}）掃描後再買入")
+            st.info(f"第 2 個空位：{nd.strftime('%m/%d')}（{wd[nd.weekday()]}）掃描 → {nd2.strftime('%m/%d')}（{wd[nd2.weekday()]}）買入")
 
         st.caption(f"訊號日：{_sig_d}（D）")
     else:
@@ -884,7 +884,7 @@ with tab3:
 
             if len(_sell_list) > 1:
                 _nd2 = next_trading_day(str(_nd), trading_cal)
-                st.info(f"第 2 個空位等 {_nd2.strftime('%m/%d')}（{_wd[_nd2.weekday()]}）掃描後再買入")
+                st.info(f"第 2 個空位：{_nd.strftime('%m/%d')}（{_wd[_nd.weekday()]}）掃描 → {_nd2.strftime('%m/%d')}（{_wd[_nd2.weekday()]}）買入")
         else:
             st.info(f"目前沒有要換股（{len(_bt_holding)} 檔持有中，無賣出訊號）")
         st.markdown("---")
