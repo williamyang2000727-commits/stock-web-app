@@ -868,9 +868,9 @@ with tab3:
                     f"原因：{_s['reason']}｜報酬 {_s['ret']:+.1f}%｜持有 {_s['dh']} 交易日"
                 )
 
-            # Buy: 優先讀 daily_scan 存的 pending_buy（權威來源），fallback 到 live scan
-            _scan_data = read_gist_file("scan_results.json") if not scan else None
-            _pb = (_scan_data or {}).get("pending_buy") if _scan_data else None
+            # Buy: 永遠優先讀 daily_scan 存的 pending_buy（權威來源）
+            _scan_data = read_gist_file("scan_results.json")
+            _pb = (_scan_data or {}).get("pending_buy")
             if not _pb and scan:
                 _sold_tks = {s["ticker"] for s in _sell_list}
                 _held_tks = {h.get("ticker") for h in _bt_holding} - _sold_tks
