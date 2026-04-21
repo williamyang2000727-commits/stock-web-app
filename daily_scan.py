@@ -273,7 +273,7 @@ def main():
     bt_data = data_gist.get("backtest_results.json", {})
     if bt_data and bt_data.get("trades"):
         bt_end = bt_data["stats"].get("end_date", "")
-        if trading_date > bt_end:
+        if trading_date >= bt_end:  # >= not > : always run Phase A+B even if bt already current
             print(f"Extending backtest from {bt_end} to {trading_date}...")
             sp = params
             max_pos = int(sp.get("max_positions", 2))
