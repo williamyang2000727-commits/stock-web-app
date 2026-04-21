@@ -109,7 +109,11 @@ def authenticate():
 @st.cache_data(ttl=1800, show_spinner="正在抓取市場資料...")
 def get_market_data():
     from scanner import fetch_market_data
-    return fetch_market_data()
+    data, td = fetch_market_data()
+    # If fetch returned too few stocks (API hiccup), don't cache the bad result
+    if len(data) < 500:
+        st.cache_data.clear()
+    return data, td
 
 
 # ── Live Scan (每次登入都跑，session 內快取) ─────────────────
