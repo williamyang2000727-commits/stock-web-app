@@ -256,6 +256,9 @@ def main():
     # 6. Update scan_results
     twse_n = len([k for k in market_data if ".TW" in k and ".TWO" not in k])
     otc_n = len([k for k in market_data if ".TWO" in k])
+    # Preserve previous pending if Phase A+B doesn't run (defensive: >= should always enter,
+    # but if bt_data is missing/empty, pending from previous run must survive)
+    _prev_scan = data_gist.get("scan_results.json", {})
     scan_results = {
         "date": trading_date,
         "timestamp": datetime.now(TW_TZ).isoformat(),
@@ -265,8 +268,8 @@ def main():
         "sell_signals": [],
         "holdings_status": [],
         "market_summary": {"twse_count": twse_n, "otc_count": otc_n, "scan_count": 100},
-        "pending_sells": [],
-        "pending_buy": None,
+        "pending_sells": _prev_scan.get("pending_sells", []),
+        "pending_buy": _prev_scan.get("pending_buy"),
     }
 
     # 7. Backtest extension (2-phase pending mechanism)
