@@ -71,7 +71,7 @@ def write_gist_file(filename, data_dict, clear_cache=False):
                            headers=headers, json=payload, timeout=30)
         if r.status_code == 200:
             if clear_cache:
-                st.cache_data.clear()
+                _read_gist.clear()
             return True
     except Exception:
         pass
@@ -854,7 +854,16 @@ with tab3:
         _d_display = _d_date if _d_date else "（未掃描）"
         if _stale:
             st.warning(f"⚠️ 訊號日 {_d_display} 晚於預期執行日 — daily_scan 可能中斷。建議按「重新整理」或等下次自動掃描。")
-        st.markdown(f"**訊號日：{_d_display}（D）→ {_nd_str}（{_wd[_nd.weekday()]}）執行（D+1）**")
+
+        # Check if pending has already been executed (today >= execution day)
+        _today_dt = tw_today()
+        _pending_executed = (_today_dt >= _nd.date()) if hasattr(_nd, 'date') else (_today_dt >= _nd)
+
+        if _pending_executed:
+            st.markdown(f"**訊號日：{_d_display}（D）→ {_nd_str}（{_wd[_nd.weekday()]}）已執行 ✅**")
+            st.info(f"📋 以下訊號已在 {_nd_str} 執行完畢。等待今天 16:35 掃描更新新訊號。")
+        else:
+            st.markdown(f"**訊號日：{_d_display}（D）→ {_nd_str}（{_wd[_nd.weekday()]}）執行（D+1）**")
 
         if _sell_list:
             _has_swap = True
@@ -890,8 +899,20 @@ with tab3:
                 st.info(f"⚠️ 有賣出訊號但**沒有買入候選**（可能是當前掃描結果中所有達標股都已持有）")
 
             if len(_sell_list) > 1:
-                _nd2 = next_trading_day(str(_nd), trading_cal)
-                st.info(f"第 2 個空位：{_nd.strftime('%m/%d')}（{_wd[_nd.weekday()]}）掃描 → {_nd2.strftime('%m/%d')}（{_wd[_nd2.weekday()]}）買入")
+                # 第 2 空位：Phase B 在 D 的 scan 已預見空位 → 掃描日 = D+1 → 買入日 = D+2
+                # 但如果 pending 已執行（today >= _nd），Phase B 已在 _nd 當天跑完
+                # 所以掃描日 = _nd，買入日 = next(_nd)
+                if _pending_executed:
+                    # 已執行：slot 2 的 Phase B 是今天跑的，明天買
+                    _scan2_str = _nd.strftime('%m/%d')
+                    _scan2_wd = _wd[_nd.weekday()]
+                    _buy2 = next_trading_day(str(_nd), trading_cal)
+                else:
+                    # 尚未執行：slot 2 等 D+1 執行後才掃描
+                    _buy2 = next_trading_day(str(_nd), trading_cal)
+                    _scan2_str = _nd.strftime('%m/%d')
+                    _scan2_wd = _wd[_nd.weekday()]
+                st.info(f"第 2 個空位：{_scan2_str}（{_scan2_wd}）掃描 → {_buy2.strftime('%m/%d')}（{_wd[_buy2.weekday()]}）買入")
         else:
             st.info(f"目前沒有要換股（{len(_bt_holding)} 檔持有中，無賣出訊號）")
         st.markdown("---")
