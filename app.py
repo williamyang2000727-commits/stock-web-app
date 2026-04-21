@@ -259,13 +259,15 @@ def _read_history_gist():
 history_cache = _read_history_gist()
 cache_date = history_cache.get("updated", "") if history_cache else ""
 
-# ── Fallback: if live API failed, reconstruct market_data from Gist cache ──
+# ── Fallback: fill ANY missing stock from Gist history cache ──
 # daily_scan writes 2000 stocks to history cache every trading day (reliable).
-# This guarantees edge-case detection + live scan work even when TWSE/TPEx API is down.
-if len(market_data) < 500 and history_cache and history_cache.get("stocks"):
+# Even if API returns 6000 stocks but misses a few (達邁/佰鴻), cache fills the gaps.
+# Stocks already in market_data (from live API) are NOT overwritten.
+if history_cache and history_cache.get("stocks"):
     _fb_stocks = history_cache["stocks"]
+    _fb_filled = 0
     for _fb_tk, _fb_cs in _fb_stocks.items():
-        if _fb_cs.get("c") and len(_fb_cs["c"]) > 0:
+        if _fb_tk not in market_data and _fb_cs.get("c") and len(_fb_cs["c"]) > 0:
             market_data[_fb_tk] = {
                 "close": _fb_cs["c"][-1],
                 "high": _fb_cs["h"][-1] if _fb_cs.get("h") else _fb_cs["c"][-1],
@@ -274,6 +276,7 @@ if len(market_data) < 500 and history_cache and history_cache.get("stocks"):
                 "open": _fb_cs["o"][-1] if _fb_cs.get("o") and _fb_cs["o"] else _fb_cs["c"][-1],
                 "name": "",
             }
+            _fb_filled += 1
     if not trading_date or trading_date == str(tw_today()):
         trading_date = cache_date or str(tw_today())
 
