@@ -300,6 +300,14 @@ def main():
             _pending_sells = prev_scan.get("pending_sells", [])
             _pending_buy = prev_scan.get("pending_buy", None)
 
+            # GUARD: If scan_results.date == today, a previous run already executed Phase A.
+            # The pending in scan_results is for TOMORROW, not today. Skip to avoid duplicates.
+            _prev_scan_date = prev_scan.get("date", "")
+            if _prev_scan_date == trading_date:
+                print(f"  Phase A SKIP: scan already from today ({trading_date}), pending is for tomorrow")
+                _pending_sells = []
+                _pending_buy = None
+
             if _pending_sells:
                 for ps in _pending_sells:
                     tk = ps["ticker"]
