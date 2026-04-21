@@ -867,6 +867,11 @@ with tab3:
 
         st.markdown(f"**訊號日：{_d_display}（D）→ {_nd_str}（{_wd[_nd.weekday()]}）執行（D+1）**")
 
+        # 除錯：如果 pending 全空但 bt_holding 有持倉且 should_sell 觸發 → 可能是 scan 未完成
+        if not _pending_sells_data and not _pending_buy_data and _sell_list:
+            st.warning(f"⚠️ scan_results 無 pending 資料（pending_sells={_pending_sells_data}, pending_buy={_pending_buy_data}）。"
+                       f"可能 daily_scan 未完成或格式異常。以下為本地計算的換股建議。")
+
         if _pending_sells_data or _pending_buy_data:
             _has_swap = True
             # 顯示 pending sells
