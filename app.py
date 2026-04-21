@@ -110,9 +110,10 @@ def authenticate():
 def get_market_data():
     from scanner import fetch_market_data
     data, td = fetch_market_data()
-    # If fetch returned too few stocks (API hiccup), don't cache the bad result
+    # Streamlit does NOT cache exceptions → bad fetch won't be cached,
+    # next page load auto-retries. This is the permanent fix.
     if len(data) < 500:
-        st.cache_data.clear()
+        raise RuntimeError(f"Market data incomplete: {len(data)} stocks (need 500+)")
     return data, td
 
 
