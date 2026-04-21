@@ -907,7 +907,15 @@ with tab3:
                     f"原因：{_s['reason']}｜報酬 {_s['ret']:+.1f}%｜持有 {_s['dh']} 交易日"
                 )
         else:
-            st.info(f"目前沒有要換股（{len(_bt_holding)} 檔持有中，無賣出訊號）")
+            _held_count = len(_bt_holding)
+            _max_p = int(_sp.get("max_positions", 2))
+            if _held_count < _max_p:
+                _empty = _max_p - _held_count
+                st.warning(f"📭 {_held_count}/{_max_p} 檔持有中，{_empty} 個空位。"
+                           f"今日掃描**無達標候選**（score < {int(_sp.get('buy_threshold', 8))}），"
+                           f"明日 16:35 再掃描。")
+            else:
+                st.info(f"目前沒有要換股（{_held_count} 檔持有中，無賣出訊號）")
         st.markdown("---")
 
     # === Auto-extend backtest from GPU end to today ===
