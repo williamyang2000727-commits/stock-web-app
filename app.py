@@ -859,83 +859,50 @@ with tab3:
         _today_dt = tw_today()
         _pending_executed = (_today_dt >= _nd.date()) if hasattr(_nd, 'date') else (_today_dt >= _nd)
 
-        # Read scan_results pending (authority source from daily_scan)
+        # ── 全面改用 scan_results 的 pending（authority source）──
         _scan_data = read_gist_file("scan_results.json")
-        _pending_sells_data = (_scan_data or {}).get("pending_sells", [])
+        _pending_sells_data = (_scan_data or {}).get("pending_sells") or []
         _pending_buy_data = (_scan_data or {}).get("pending_buy")
+        _max_pos = int(_sp.get("max_positions", 2))
 
-        if _pending_executed:
-            # ── 訊號已執行：顯示今天 daily_scan 的最新 pending（Phase B 生成的）──
-            st.markdown(f"**訊號日：{_d_display}（D）→ {_nd_str}（{_wd[_nd.weekday()]}）已執行 ✅**")
+        st.markdown(f"**訊號日：{_d_display}（D）→ {_nd_str}（{_wd[_nd.weekday()]}）執行（D+1）**")
 
-            # 已執行的舊 pending 不顯示（sell 陽程/創威 已完成）
-            # 顯示 Phase B 的新 pending（如果有）
-            _has_new_pending = _pending_sells_data or _pending_buy_data
-            if _has_new_pending:
-                _nd2 = next_trading_day(str(_nd), trading_cal) if trading_cal else _nd
-                _nd2_str = _nd2.strftime('%m/%d') if hasattr(_nd2, 'strftime') else str(_nd2)
-                _nd2_wd = _wd[_nd2.weekday()] if hasattr(_nd2, 'weekday') else ""
-
-                if _pending_sells_data:
-                    for _ps in _pending_sells_data:
-                        st.error(f"**📤 明日賣出** {_ps.get('name','')}（{_ps.get('ticker','')}）｜原因：{_ps.get('reason','')}")
-
-                if _pending_buy_data:
-                    _bp1 = _pending_buy_data.get('close', 0)
-                    st.success(
-                        f"**🎯 D+1 買入** {_pending_buy_data.get('name', '')}（{_pending_buy_data.get('ticker', '')}）\n\n"
-                        f"評分 {int(_pending_buy_data.get('score', 0))} 分｜收盤價 {_bp1}｜"
-                        f"**{_nd2_str}（{_nd2_wd}）13:25 前買入**"
-                    )
-
-                # 如果有空位但沒有 pending_buy
-                _held_after = len(_bt_holding) - len([s for s in _sell_list if s]) + (1 if _pending_buy_data else 0)
-                if not _pending_buy_data and _held_after < int(_sp.get("max_positions", 2)):
-                    st.info(f"第 2 個空位：{_nd_str}（{_wd[_nd.weekday()]}）掃描 → {_nd2_str}（{_nd2_wd}）買入")
-            else:
-                st.info(f"📋 {_nd_str} 已執行完畢，今日無新換股訊號。持倉穩定。")
-            _has_swap = bool(_has_new_pending)
+        if _pending_sells_data or _pending_buy_data:
+            _has_swap = True
+            # 顯示 pending sells
+            for _ps in _pending_sells_data:
+                st.error(
+                    f"**📤 賣出** {_ps.get('name','')}（{_ps.get('ticker','')}）\n\n"
+                    f"原因：{_ps.get('reason','')}"
+                )
+            # 顯示 pending buy
+            if _pending_buy_data:
+                _bp1 = _pending_buy_data.get('close', 0)
+                _bp_display = f"{_bp1}" if _bp1 > 0 else "（無價格）"
+                st.success(
+                    f"**🎯 D+1 買入** {_pending_buy_data.get('name', '')}（{_pending_buy_data.get('ticker', '')}）\n\n"
+                    f"評分 {int(_pending_buy_data.get('score', 0))} 分｜收盤價 {_bp_display}｜"
+                    f"**{_nd_str}（{_wd[_nd.weekday()]}）13:25 前買入**"
+                )
+            # 如果賣出數 > 買入數 → 有空位要等下次掃描
+            _slots_after_pending = len(_bt_holding) - len(_pending_sells_data) + (1 if _pending_buy_data else 0)
+            if _slots_after_pending < _max_pos:
+                _n_empty = _max_pos - _slots_after_pending
+                for _ei in range(_n_empty):
+                    st.info(f"第 {_ei+2} 個空位：{_nd_str}（{_wd[_nd.weekday()]}）掃描 → "
+                            f"{next_trading_day(str(_nd), trading_cal).strftime('%m/%d')}"
+                            f"（{_wd[next_trading_day(str(_nd), trading_cal).weekday()]}）買入")
+        elif _sell_list:
+            # Fallback: scan_results 沒有 pending 欄位（舊版 daily_scan）→ 用本地計算
+            _has_swap = True
+            for _s in _sell_list:
+                _bd_display = f"（{_s.get('buy_date','')} 買）" if _s.get("buy_date") else ""
+                st.error(
+                    f"**📤 賣出** {_s['name']}（{_s['ticker']}）{_bd_display}\n\n"
+                    f"原因：{_s['reason']}｜報酬 {_s['ret']:+.1f}%｜持有 {_s['dh']} 交易日"
+                )
         else:
-            # ── 訊號尚未執行：顯示待執行的 pending ──
-            st.markdown(f"**訊號日：{_d_display}（D）→ {_nd_str}（{_wd[_nd.weekday()]}）執行（D+1）**")
-
-            if _sell_list:
-                _has_swap = True
-                for _s in _sell_list:
-                    _bd_str = _s.get("buy_date","")
-                    _bd_display = f"（{_bd_str} 買）" if _bd_str else ""
-                    st.error(
-                        f"**📤 賣出** {_s['name']}（{_s['ticker']}）{_bd_display}\n\n"
-                        f"原因：{_s['reason']}｜報酬 {_s['ret']:+.1f}%｜持有 {_s['dh']} 交易日"
-                    )
-
-                # Buy from pending
-                _pb = _pending_buy_data
-                if not _pb and scan:
-                    _sold_tks = {s["ticker"] for s in _sell_list}
-                    _held_tks = {h.get("ticker") for h in _bt_holding} - _sold_tks
-                    _buy_candidates = [s for s in scan.get("buy_signals", []) if s.get("ticker") not in _held_tks and s.get("ticker") not in _sold_tks]
-                    if _buy_candidates:
-                        _pb = {"name": _buy_candidates[0].get("name",""), "ticker": _buy_candidates[0].get("ticker",""),
-                               "score": _buy_candidates[0].get("score",0), "close": _buy_candidates[0].get("close",0)}
-
-                if _pb:
-                    _bp1 = _pb.get('close', 0)
-                    _bp_display = f"{_bp1}" if _bp1 > 0 else "（無價格）"
-                    st.success(
-                        f"**🎯 D+1 買入** {_pb.get('name', '')}（{_pb.get('ticker', '')}）\n\n"
-                        f"評分 {int(_pb.get('score', 0))} 分｜收盤價 {_bp_display}｜**{_nd_str}（{_wd[_nd.weekday()]}）13:25 前買入**"
-                    )
-                else:
-                    st.info(f"⚠️ 有賣出訊號但**沒有買入候選**（可能是當前掃描結果中所有達標股都已持有）")
-
-                if len(_sell_list) > 1:
-                    # 賣 2 買 1 → slot 2 在執行日當天 scan 填補
-                    _buy2 = next_trading_day(str(_nd), trading_cal)
-                    st.info(f"第 2 個空位：{_nd_str}（{_wd[_nd.weekday()]}）掃描 → "
-                            f"{_buy2.strftime('%m/%d')}（{_wd[_buy2.weekday()]}）買入")
-            else:
-                st.info(f"目前沒有要換股（{len(_bt_holding)} 檔持有中，無賣出訊號）")
+            st.info(f"目前沒有要換股（{len(_bt_holding)} 檔持有中，無賣出訊號）")
         st.markdown("---")
 
     # === Auto-extend backtest from GPU end to today ===
