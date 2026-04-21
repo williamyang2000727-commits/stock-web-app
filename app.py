@@ -259,6 +259,24 @@ def _read_history_gist():
 history_cache = _read_history_gist()
 cache_date = history_cache.get("updated", "") if history_cache else ""
 
+# ── Fallback: if live API failed, reconstruct market_data from Gist cache ──
+# daily_scan writes 2000 stocks to history cache every trading day (reliable).
+# This guarantees edge-case detection + live scan work even when TWSE/TPEx API is down.
+if len(market_data) < 500 and history_cache and history_cache.get("stocks"):
+    _fb_stocks = history_cache["stocks"]
+    for _fb_tk, _fb_cs in _fb_stocks.items():
+        if _fb_cs.get("c") and len(_fb_cs["c"]) > 0:
+            market_data[_fb_tk] = {
+                "close": _fb_cs["c"][-1],
+                "high": _fb_cs["h"][-1] if _fb_cs.get("h") else _fb_cs["c"][-1],
+                "low": _fb_cs["l"][-1] if _fb_cs.get("l") else _fb_cs["c"][-1],
+                "vol": _fb_cs["v"][-1] if _fb_cs.get("v") else 0,
+                "open": _fb_cs["o"][-1] if _fb_cs.get("o") and _fb_cs["o"] else _fb_cs["c"][-1],
+                "name": "",
+            }
+    if not trading_date or trading_date == str(tw_today()):
+        trading_date = cache_date or str(tw_today())
+
 # ── Indicator States (separate Gist for large file) ──
 @st.cache_data(ttl=300)
 def _read_state_gist():
