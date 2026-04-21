@@ -314,7 +314,7 @@ def main():
                     for i, h in enumerate(sim_holdings):
                         if h["ticker"] == tk and tk in market_data:
                             cur = market_data[tk].get("open", market_data[tk]["close"])  # FIX C1: GPU sells at D+1 open
-                            ret = (cur / h["buy_price"] - 1) * 100 if h["buy_price"] > 0 else 0
+                            ret = (cur / h["buy_price"] - 1) * 100 - 0.585 if h["buy_price"] > 0 else 0  # match GPU: subtract transaction cost
                             dh = count_between(h.get("buy_date", ""), trading_date, fallback_calendar=_fallback_cal)
                             bt_trades.append({
                                 "ticker": tk, "name": h.get("name", ""),
@@ -354,6 +354,8 @@ def main():
                 if dh < 1: continue
                 cache_c = list(cache[tk]["c"]) if tk in cache else None
                 if cache_c is not None and tk in market_data:
+                    # NOTE: cache already has today (step 4). Append again so that
+                    # should_sell's MA60 slice [-61:-1] includes today (last dup excluded).
                     cache_c = cache_c + [market_data[tk]["close"]]
                 reason = should_sell(bp, cur, pk, dh, sp, cache_closes=cache_c, indicators=None)
                 if reason:

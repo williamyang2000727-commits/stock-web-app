@@ -1004,7 +1004,7 @@ with tab3:
                     if tk not in _dmkt:
                         _new_h.append(h); continue
                     bp = h["buy_price"]; cur = _dmkt[tk]["close"]
-                    ret = (cur/bp-1)*100 if bp > 0 else 0
+                    ret = (cur/bp-1)*100 - 0.585 if bp > 0 else 0  # match GPU: subtract transaction cost
                     from trading_days import count_between
                     dh = count_between(h.get("buy_date",""), str(sim_day),
                                         fallback_calendar=[str(d) for d in _all_cal] if _all_cal else None)
