@@ -892,12 +892,7 @@ with tab3:
         if _stale:
             st.warning(f"⚠️ 訊號日 {_d_display} 晚於預期執行日 — daily_scan 可能中斷。建議按「重新整理」或等下次自動掃描。")
         elif _scan_not_yet_today:
-            import datetime as _dt_check
-            _now_tw = _dt_check.datetime.now(_dt_check.timezone(_dt_check.timedelta(hours=8)))
-            if _now_tw.hour >= 16:
-                st.info(f"⏳ 今日 daily_scan 尚未完成（預定 16:35，可能排隊中）。目前顯示的是 **{_d_display}** 的掃描結果，請稍候再按「重新整理」。")
-            else:
-                st.info(f"⏳ 今日 daily_scan 預定 **16:35** 執行，目前顯示的是 **{_d_display}** 的掃描結果。")
+            st.info(f"⏳ 今日 daily_scan 尚未完成（預定 16:35）。目前顯示的是 **{_d_display}** 的掃描結果，完成後請按「重新整理」查看最新訊號。")
 
         # FIX #1+#10: 判斷 pending 是「今天要執行」還是「明天要執行」
         _today_dt = tw_today()
