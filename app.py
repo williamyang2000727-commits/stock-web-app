@@ -843,12 +843,17 @@ with tab3:
         _wd = ["一", "二", "三", "四", "五", "六", "日"]
 
         # FIX #2: stale = 超過 1 個交易日沒更新（正常 D+1 morning 不該觸發）
+        _scan_not_yet_today = False
         try:
             _today_d = date.fromisoformat(trading_date) if trading_date else tw_today()
             _scan_d = date.fromisoformat(_d_date) if _d_date else _today_d
             _cal_list = sorted(_full_trading_cal or trading_cal or [])
             _days_since_scan = sum(1 for d in _cal_list if _scan_d < d <= _today_d) if _cal_list else 0
             _stale = _days_since_scan >= 2  # 只有落後 2+ 交易日才警告
+            # 今天是交易日但 scan_results 還是昨天的 → daily_scan 還沒跑
+            _today_is_trading = _today_d in (_full_trading_cal or trading_cal or set())
+            if _days_since_scan == 1 and _today_is_trading:
+                _scan_not_yet_today = True
         except:
             _stale = False
 
@@ -886,6 +891,13 @@ with tab3:
         _d_display = _d_date if _d_date else "（未掃描）"
         if _stale:
             st.warning(f"⚠️ 訊號日 {_d_display} 晚於預期執行日 — daily_scan 可能中斷。建議按「重新整理」或等下次自動掃描。")
+        elif _scan_not_yet_today:
+            import datetime as _dt_check
+            _now_tw = _dt_check.datetime.now(_dt_check.timezone(_dt_check.timedelta(hours=8)))
+            if _now_tw.hour >= 16:
+                st.info(f"⏳ 今日 daily_scan 尚未完成（預定 16:35，可能排隊中）。目前顯示的是 **{_d_display}** 的掃描結果，請稍候再按「重新整理」。")
+            else:
+                st.info(f"⏳ 今日 daily_scan 預定 **16:35** 執行，目前顯示的是 **{_d_display}** 的掃描結果。")
 
         # FIX #1+#10: 判斷 pending 是「今天要執行」還是「明天要執行」
         _today_dt = tw_today()
