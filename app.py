@@ -374,7 +374,10 @@ if history_cache and cache_date and market_data and trading_date > cache_date:
             _hist["h"] = _hist["h"][-79:] + [_info.get("high", _info["close"])]
             _hist["l"] = _hist["l"][-79:] + [_info.get("low", _info["close"])]
             _hist["v"] = _hist["v"][-79:] + [_info["vol"]]
-            _hist["dates"] = (_hist.get("dates") or [])[-79:] + [trading_date]
+            _hist["h250"] = (_hist.get("h250") or _hist["h"])[-249:] + [_info.get("high", _info["close"])]
+            _hist["l250"] = (_hist.get("l250") or _hist["l"])[-249:] + [_info.get("low", _info["close"])]
+            _hist.pop("dates", None)  # per-stock dates 已搬頂層
+    history_cache["dates"] = (history_cache.get("dates") or [])[-79:] + [trading_date]
     history_cache["updated"] = trading_date
     try:
         _h = {"Authorization": f"token {GITHUB_TOKEN}"}
@@ -892,8 +895,10 @@ with tab3:
                         _h_t3 = _np_t3.array(list(_cs_t3["h"]) + ([market_data[_tk]["high"]] if _tk in market_data else []), dtype=_np_t3.float64)
                         _l_t3 = _np_t3.array(list(_cs_t3["l"]) + ([market_data[_tk]["low"]] if _tk in market_data else []), dtype=_np_t3.float64)
                         _v_t3 = _np_t3.array(list(_cs_t3["v"]) + ([market_data[_tk]["vol"]] if _tk in market_data else []), dtype=_np_t3.float64)
+                        _h250_t3 = _np_t3.array(list(_cs_t3.get("h250", [])) + ([market_data[_tk]["high"]] if _tk in market_data else []), dtype=_np_t3.float64) if _cs_t3.get("h250") else None
+                        _l250_t3 = _np_t3.array(list(_cs_t3.get("l250", [])) + ([market_data[_tk]["low"]] if _tk in market_data else []), dtype=_np_t3.float64) if _cs_t3.get("l250") else None
                         if len(_c_t3) >= 20:
-                            _ind_t3 = _ci_t3(_c_t3, _h_t3, _l_t3, _v_t3)
+                            _ind_t3 = _ci_t3(_c_t3, _h_t3, _l_t3, _v_t3, h250=_h250_t3, l250=_l250_t3)
                     except Exception:
                         pass
                 _reason = should_sell(_bp, _cur, _pk, _dh, _sp, cache_closes=_cs_c, indicators=_ind_t3)
@@ -1017,9 +1022,9 @@ with tab3:
         except:
             pass
 
-        # Map cache dates: use stored dates array (exact, no guessing)
+        # Map cache dates: use top-level dates (fallback to per-stock for old format)
         _ref_stock = next(iter(_cache.values()), {}) if _cache else {}
-        _stored_dates = _ref_stock.get("dates", [])
+        _stored_dates = history_cache.get("dates", []) or _ref_stock.get("dates", [])
         _date_to_idx = {}
         if _stored_dates:
             # dates 存的是 string "2026-04-01"，轉成 date object

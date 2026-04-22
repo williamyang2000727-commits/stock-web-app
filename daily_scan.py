@@ -209,10 +209,14 @@ def main():
                 hist["h"] = hist["h"][-79:] + [info.get("high", info["close"])]
                 hist["l"] = hist["l"][-79:] + [info.get("low", info["close"])]
                 hist["v"] = hist["v"][-79:] + [info["vol"]]
-                # 新加：存 open 價（修 consecutive_green + gap_up 歷史限制）
-                # 舊快取沒有 o 陣列，從今天開始每天累加（~80 天後全部填滿）
                 hist["o"] = (hist.get("o") or [])[-79:] + [info.get("open", info["close"])]
-                hist["dates"] = (hist.get("dates") or [])[-79:] + [trading_date]
+                # h250/l250: 250 天 high/low（精準 week52_pos）
+                hist["h250"] = (hist.get("h250") or hist["h"])[-249:] + [info.get("high", info["close"])]
+                hist["l250"] = (hist.get("l250") or hist["l"])[-249:] + [info.get("low", info["close"])]
+                # 清理舊的 per-stock dates（改存頂層，省 2 MB）
+                hist.pop("dates", None)
+        # dates 存一份在頂層（所有股票共用同一組交易日）
+        history["dates"] = (history.get("dates") or [])[-79:] + [trading_date]
         history["updated"] = trading_date
         write_gist(HISTORY_GIST, "history_cache.json", history)
         print(f"  Updated {len(cache)} stocks")
@@ -231,10 +235,12 @@ def main():
         v = np.array(cs["v"], dtype=np.float64)
         if len(c) < 20: continue
         o_arr = np.array(cs["o"], dtype=np.float64) if cs.get("o") and len(cs["o"]) == len(cs["c"]) else None
+        h250 = np.array(cs["h250"], dtype=np.float64) if cs.get("h250") else None
+        l250 = np.array(cs["l250"], dtype=np.float64) if cs.get("l250") else None
         if tk in states:
-            ind = compute_indicators_with_state(c, h, lo, v, states[tk], o=o_arr)
+            ind = compute_indicators_with_state(c, h, lo, v, states[tk], o=o_arr, h250=h250, l250=l250)
         else:
-            ind = compute_indicators(c, h, lo, v, o=o_arr)  # FIX M7: fallback like run_scan
+            ind = compute_indicators(c, h, lo, v, o=o_arr, h250=h250, l250=l250)
         if ind is None: continue
         # Gap % — 今天 open vs 昨天 close（cache 已 append 今天，所以昨天在 [-2]）
         _td_info = market_data.get(tk, {})
@@ -285,8 +291,7 @@ def main():
             bt_trades = [t for t in bt_data["trades"] if t.get("reason") != "持有中"]
 
             from trading_days import count_between
-            _any_stock = next(iter(cache.values()), {})
-            _fallback_cal = _any_stock.get("dates", [])
+            _fallback_cal = history.get("dates", [])
 
             def _clean_reason(r):
                 for _pf, _cl in [("移動停利","移動停利"),("保本","保本出場"),("停損","停損"),
@@ -370,8 +375,10 @@ def main():
                         _l = np.array(_cs["l"], dtype=np.float64)
                         _v = np.array(_cs["v"], dtype=np.float64)
                         _o = np.array(_cs["o"], dtype=np.float64) if _cs.get("o") and len(_cs["o"]) == len(_cs["c"]) else None
+                        _h250_s = np.array(_cs["h250"], dtype=np.float64) if _cs.get("h250") else None
+                        _l250_s = np.array(_cs["l250"], dtype=np.float64) if _cs.get("l250") else None
                         if len(_c) >= 20:
-                            _ind = compute_indicators_with_state(_c, _h, _l, _v, states[tk], o=_o) if tk in states else compute_indicators(_c, _h, _l, _v, o=_o)
+                            _ind = compute_indicators_with_state(_c, _h, _l, _v, states[tk], o=_o, h250=_h250_s, l250=_l250_s) if tk in states else compute_indicators(_c, _h, _l, _v, o=_o, h250=_h250_s, l250=_l250_s)
                     except Exception:
                         pass
                 reason = should_sell(bp, cur, pk, dh, sp, cache_closes=cache_c, indicators=_ind)

@@ -100,7 +100,7 @@ def fetch_market_data():
     return all_data, trading_date
 
 
-def compute_indicators(c, h, lo, vol, o=None):
+def compute_indicators(c, h, lo, vol, o=None, h250=None, l250=None):
     """Compute technical indicators (matching GPU algorithm)."""
     n = len(c)
     if n < 20:
@@ -259,12 +259,15 @@ def compute_indicators(c, h, lo, vol, o=None):
     else:
         ind["mom_accel"] = 0.0
 
-    # 52 週位置（cache 只有 ~80 天，近似用可用天數；GPU 用 250 天，會略有差異）
-    w52_n = min(250, n)
-    w52_start = last - w52_n + 1
+    # 52 週位置：用 h250/l250（250 天精準），沒有時 fallback h/lo（80 天近似）
+    _h_w52 = h250 if h250 is not None else h
+    _l_w52 = l250 if l250 is not None else lo
+    _n_w52 = len(_h_w52)
+    w52_n = min(250, _n_w52)
+    w52_start = _n_w52 - w52_n
     if w52_start >= 0 and w52_n >= 20:
-        high_w = float(np.max(h[w52_start:last + 1]))
-        low_w = float(np.min(lo[w52_start:last + 1]))
+        high_w = float(np.max(_h_w52[w52_start:]))
+        low_w = float(np.min(_l_w52[w52_start:]))
         ind["week52_pos"] = (c[last] - low_w) / (high_w - low_w) if high_w > low_w else 0.5
     else:
         ind["week52_pos"] = 0.5
@@ -371,7 +374,7 @@ def score_stock(ind, params):
     return sc
 
 
-def compute_indicators_with_state(c, h, lo, vol, state, o=None):
+def compute_indicators_with_state(c, h, lo, vol, state, o=None, h250=None, l250=None):
     """Use pre-computed running states for Wilder indicators (exact match with Mac)."""
     n = len(c)
     if n < 20:
@@ -498,12 +501,15 @@ def compute_indicators_with_state(c, h, lo, vol, state, o=None):
     else:
         ind["mom_accel"] = 0.0
 
-    # week52_pos
-    w52_n = min(250, n)
-    w52_start = last - w52_n + 1
+    # week52_pos：用 h250/l250（250 天精準），沒有時 fallback h/lo
+    _h_w52 = h250 if h250 is not None else h
+    _l_w52 = l250 if l250 is not None else lo
+    _n_w52 = len(_h_w52)
+    w52_n = min(250, _n_w52)
+    w52_start = _n_w52 - w52_n
     if w52_start >= 0 and w52_n >= 20:
-        high_w = float(np.max(h[w52_start:last + 1]))
-        low_w = float(np.min(lo[w52_start:last + 1]))
+        high_w = float(np.max(_h_w52[w52_start:]))
+        low_w = float(np.min(_l_w52[w52_start:]))
         ind["week52_pos"] = (c[last] - low_w) / (high_w - low_w) if high_w > low_w else 0.5
     else:
         ind["week52_pos"] = 0.5
@@ -568,22 +574,27 @@ def run_scan(params, held_tickers=None, history_cache=None, indicator_states=Non
             new_day = trading_date > cache_updated
 
             hist_o = cs.get("o", [])  # open 陣列（舊 cache 可能沒有）
+            hist_h250 = cs.get("h250", [])  # 250 天 high（精準 week52）
+            hist_l250 = cs.get("l250", [])  # 250 天 low
             if new_day:
                 c = np.array(hist_c + [today_info["close"]], dtype=np.float64)
                 h = np.array(hist_h + [today_info["high"]], dtype=np.float64)
                 lo = np.array(hist_l + [today_info["low"]], dtype=np.float64)
                 v = np.array(hist_v + [today_info["vol"]], dtype=np.float64)
-                # 只有當 hist_o 長度和 hist_c 匹配時才 append（確保陣列長度一致）
                 if hist_o and len(hist_o) == len(hist_c):
                     o = np.array(hist_o + [today_info.get("open", today_info["close"])], dtype=np.float64)
                 else:
                     o = None
+                h250 = np.array(hist_h250 + [today_info["high"]], dtype=np.float64) if hist_h250 else None
+                l250 = np.array(hist_l250 + [today_info["low"]], dtype=np.float64) if hist_l250 else None
             else:
                 c = np.array(hist_c, dtype=np.float64)
                 h = np.array(hist_h, dtype=np.float64)
                 lo = np.array(hist_l, dtype=np.float64)
                 v = np.array(hist_v, dtype=np.float64)
                 o = np.array(hist_o, dtype=np.float64) if hist_o and len(hist_o) == len(hist_c) else None
+                h250 = np.array(hist_h250, dtype=np.float64) if hist_h250 else None
+                l250 = np.array(hist_l250, dtype=np.float64) if hist_l250 else None
 
             if len(c) < 20:
                 continue
@@ -630,9 +641,9 @@ def run_scan(params, held_tickers=None, history_cache=None, indicator_states=Non
                     st["kd_d_prev"] = st["kd_d"]
                     st["kd_k"] = st["kd_k"] * 2/3 + rsv / 3
                     st["kd_d"] = st["kd_d"] * 2/3 + st["kd_k"] / 3
-                ind = compute_indicators_with_state(c, h, lo, v, st, o=o)
+                ind = compute_indicators_with_state(c, h, lo, v, st, o=o, h250=h250, l250=l250)
             else:
-                ind = compute_indicators(c, h, lo, v, o=o)
+                ind = compute_indicators(c, h, lo, v, o=o, h250=h250, l250=l250)
             if ind is None:
                 continue
 
@@ -755,8 +766,12 @@ def check_sell_signals(holdings, params, market_data, history_cache, trading_dat
                     if _o_list and ticker in market_data:
                         _o_list = _o_list + [market_data[ticker].get("open", market_data[ticker]["close"])]
                     o_arr = np.array(_o_list, dtype=np.float64) if _o_list and len(_o_list) == len(c_arr) else None
+                    _h250_list = list(cs.get("h250", [])) + ([market_data[ticker]["high"]] if ticker in market_data else [])
+                    _l250_list = list(cs.get("l250", [])) + ([market_data[ticker]["low"]] if ticker in market_data else [])
+                    _h250_arr = np.array(_h250_list, dtype=np.float64) if _h250_list else None
+                    _l250_arr = np.array(_l250_list, dtype=np.float64) if _l250_list else None
                     if len(c_arr) >= 20:
-                        ind = compute_indicators(c_arr, h_arr, l_arr, v_arr, o=o_arr)
+                        ind = compute_indicators(c_arr, h_arr, l_arr, v_arr, o=o_arr, h250=_h250_arr, l250=_l250_arr)
                 except Exception:
                     ind = None
 
