@@ -1275,17 +1275,18 @@ with tab3:
             trade_rows = []
             for t in bt_trades:
                 ret = t.get("return_pct", 0)
-                icon = "🟢" if ret > 0 else "🔴" if ret < 0 else "⚪"
+                _holding = t.get("reason") == "持有中"
+                icon = "📌" if _holding else ("🟢" if ret > 0 else "🔴" if ret < 0 else "⚪")
                 trade_rows.append({
                     "": icon,
                     "股票": t.get("name", "") or t.get("ticker", ""),
                     "買入日": t.get("buy_date", ""),
-                    "賣出日": t.get("sell_date", "") or "—",
+                    "賣出日": "—" if _holding else (t.get("sell_date", "") or "—"),
                     "買入價": t.get("buy_price", 0),
-                    "賣出價": t.get("sell_price", 0),
+                    "賣出/現價": t.get("sell_price", 0),
                     "報酬%": f"{ret:+.1f}%",
-                    "持有天數": t.get("hold_days", 0),
-                    "出場原因": t.get("reason", ""),
+                    "天數": t.get("hold_days", 0),
+                    "狀態": "持有中" if _holding else t.get("reason", ""),
                 })
             df_trades = pd.DataFrame(trade_rows)
             st.dataframe(df_trades, use_container_width=True, hide_index=True, height=500)
