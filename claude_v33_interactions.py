@@ -34,7 +34,7 @@ ma3 = pre.get("ma_d", {}).get(3, np.zeros((ns, nd)))
 print(f"  Data: {ns}x{nd} ({dates[0].date()}~{dates[-1].date()})")
 
 
-def calc_score_with_bonus(si, day, bonuses=None):
+def calc_score_with_bonus(si, day, bonuses=None, buy_th=8):
     """89.90 base score + optional interaction bonuses."""
     cur = float(close[si, day])
     if cur <= 0 or np.isnan(cur) or top100_mask[si, day] < 0.5: return -1
@@ -58,7 +58,7 @@ def calc_score_with_bonus(si, day, bonuses=None):
     ma_ok = mom_accel[si, day] >= 0
     gr = is_green[si, day] > 0.5
     gp = gap[si, day] >= 1.0
-    vr = vol_ratio[si, day] >= 3
+    vr = vol_ratio[si, day] >= 3  # for interaction checks only, NOT scored (w_vol=0 in 89.90)
 
     if r: sc += 3
     if b: sc += 3
@@ -78,7 +78,7 @@ def calc_score_with_bonus(si, day, bonuses=None):
     if ma_ok: sc += 2
     if gr: sc += 1
     if gp: sc += 1
-    if vr: sc += 1
+    # NOTE: w_vol=0 in 89.90, so vol_ratio is NOT scored (only used in interactions)
 
     # Interaction bonuses
     if bonuses:
@@ -86,7 +86,7 @@ def calc_score_with_bonus(si, day, bonuses=None):
             if combo_cond(r, b, m, mc, k, mo, nh, h60, ax, bi, ob, at, ud, w52, vu, ma_ok, gr, gp, vr):
                 sc += bonus_val
 
-    return sc if sc >= 8 else -1
+    return sc if sc >= buy_th else -1
 
 
 def replay(bonuses=None, buy_th=8):
@@ -117,7 +117,7 @@ def replay(bonuses=None, buy_th=8):
         best_sc = -1; best_si = -1; best_vr = 0
         for si in range(ns):
             if si in held_set: continue
-            sc = calc_score_with_bonus(si, day, bonuses)
+            sc = calc_score_with_bonus(si, day, bonuses, buy_th)
             if sc < 0: continue
             vr = float(vol_ratio[si, day])
             if sc > best_sc or (sc == best_sc and vr > best_vr):
