@@ -835,14 +835,20 @@ with tab3:
         _sell_list = []  # Collect all sells first
         _cal = _full_trading_cal or trading_cal  # Bug fix: 統一日曆 source，避免 gate 和 sum 用不同
 
-        # Bug fix: scan_date 若空白 fallback 到 trading_date，不會產生「訊號日：（D）」這種破顯示
-        _d_date = scan_date or trading_date
-        # Bug fix: 偵測過期訊號 — next_trading_day 若 <= 今天代表訊號過期
-        _nd = next_trading_day(_d_date, trading_cal)
+        # FIX #7+#10: 用 scan_results 的日期（= daily_scan 寫的），不用 live scan 的日期
+        _scan_data = read_gist_file("scan_results.json")
+        _scan_results_date = (_scan_data or {}).get("date", "")
+        _d_date = _scan_results_date or trading_date
+        _nd = next_trading_day(_d_date, _full_trading_cal or trading_cal)
         _wd = ["一", "二", "三", "四", "五", "六", "日"]
+
+        # FIX #2: stale = 超過 1 個交易日沒更新（正常 D+1 morning 不該觸發）
         try:
             _today_d = date.fromisoformat(trading_date) if trading_date else tw_today()
-            _stale = _nd <= _today_d and _d_date != trading_date
+            _scan_d = date.fromisoformat(_d_date) if _d_date else _today_d
+            _cal_list = sorted(_full_trading_cal or trading_cal or [])
+            _days_since_scan = sum(1 for d in _cal_list if _scan_d < d <= _today_d) if _cal_list else 0
+            _stale = _days_since_scan >= 2  # 只有落後 2+ 交易日才警告
         except:
             _stale = False
 
@@ -881,22 +887,24 @@ with tab3:
         if _stale:
             st.warning(f"⚠️ 訊號日 {_d_display} 晚於預期執行日 — daily_scan 可能中斷。建議按「重新整理」或等下次自動掃描。")
 
-        # Check if pending has already been executed (today >= execution day)
+        # FIX #1+#10: 判斷 pending 是「今天要執行」還是「明天要執行」
         _today_dt = tw_today()
-        _pending_executed = (_today_dt >= _nd.date()) if hasattr(_nd, 'date') else (_today_dt >= _nd)
-
-        # ── 全面改用 scan_results 的 pending（authority source）──
-        _scan_data = read_gist_file("scan_results.json")
         _pending_sells_data = (_scan_data or {}).get("pending_sells") or []
         _pending_buy_data = (_scan_data or {}).get("pending_buy")
         _max_pos = int(_sp.get("max_positions", 2))
 
-        st.markdown(f"**訊號日：{_d_display}（D）→ {_nd_str}（{_wd[_nd.weekday()]}）執行（D+1）**")
+        # pending 的執行日 = scan_results 日期的下一個交易日
+        # 如果執行日 <= 今天 → 今天應該已經執行了（等 daily_scan 16:35 確認）
+        # 如果執行日 > 今天 → 明天執行
+        _pending_is_for_today = (_nd <= _today_dt)
 
-        # 除錯：如果 pending 全空但 bt_holding 有持倉且 should_sell 觸發 → 可能是 scan 未完成
-        if not _pending_sells_data and not _pending_buy_data and _sell_list:
-            st.warning(f"⚠️ scan_results 無 pending 資料（pending_sells={_pending_sells_data}, pending_buy={_pending_buy_data}）。"
-                       f"可能 daily_scan 未完成或格式異常。以下為本地計算的換股建議。")
+        if _pending_is_for_today and (_pending_sells_data or _pending_buy_data):
+            st.markdown(f"**訊號日：{_d_display}（D）→ 今天 {_nd_str}（{_wd[_nd.weekday()]}）執行**")
+            st.caption("16:35 daily_scan 執行後，下方 pending 會更新為明天的訊號。")
+        else:
+            st.markdown(f"**訊號日：{_d_display}（D）→ {_nd_str}（{_wd[_nd.weekday()]}）執行（D+1）**")
+
+        # FIX #8: 只在 pending 有資料時顯示（不比對 local _sell_list 避免假警告）
 
         if _pending_sells_data or _pending_buy_data:
             _has_swap = True
@@ -910,19 +918,22 @@ with tab3:
             if _pending_buy_data:
                 _bp1 = _pending_buy_data.get('close', 0)
                 _bp_display = f"{_bp1}" if _bp1 > 0 else "（無價格）"
+                _exec_label = f"今天（{_nd_str}）" if _pending_is_for_today else f"{_nd_str}（{_wd[_nd.weekday()]}）"
                 st.success(
-                    f"**🎯 D+1 買入** {_pending_buy_data.get('name', '')}（{_pending_buy_data.get('ticker', '')}）\n\n"
+                    f"**🎯 買入** {_pending_buy_data.get('name', '')}（{_pending_buy_data.get('ticker', '')}）\n\n"
                     f"評分 {int(_pending_buy_data.get('score', 0))} 分｜收盤價 {_bp_display}｜"
-                    f"**{_nd_str}（{_wd[_nd.weekday()]}）13:25 前買入**"
+                    f"**{_exec_label} 13:25 前買入**"
                 )
-            # 如果賣出數 > 買入數 → 有空位要等下次掃描
+            # FIX #5: 空位編號正確（有 pending_buy 時從 2 開始，沒有時從 1 開始）
             _slots_after_pending = len(_bt_holding) - len(_pending_sells_data) + (1 if _pending_buy_data else 0)
             if _slots_after_pending < _max_pos:
                 _n_empty = _max_pos - _slots_after_pending
+                _slot_start = 2 if _pending_buy_data else 1
+                _next_scan_d = _nd if _pending_is_for_today else next_trading_day(str(_nd), _full_trading_cal or trading_cal)
+                _next_buy_d = next_trading_day(str(_next_scan_d), _full_trading_cal or trading_cal)
                 for _ei in range(_n_empty):
-                    st.info(f"第 {_ei+2} 個空位：{_nd_str}（{_wd[_nd.weekday()]}）掃描 → "
-                            f"{next_trading_day(str(_nd), trading_cal).strftime('%m/%d')}"
-                            f"（{_wd[next_trading_day(str(_nd), trading_cal).weekday()]}）買入")
+                    st.info(f"第 {_ei + _slot_start} 個空位：{_next_scan_d.strftime('%m/%d')}（{_wd[_next_scan_d.weekday()]}）掃描 → "
+                            f"{_next_buy_d.strftime('%m/%d')}（{_wd[_next_buy_d.weekday()]}）買入")
         elif _sell_list:
             # Fallback: scan_results 沒有 pending 欄位（舊版 daily_scan）→ 用本地計算
             _has_swap = True
