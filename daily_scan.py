@@ -360,7 +360,21 @@ def main():
                     # NOTE: cache already has today (step 4). Append again so that
                     # should_sell's MA60 slice [-61:-1] includes today (last dup excluded).
                     cache_c = cache_c + [market_data[tk]["close"]]
-                reason = should_sell(bp, cur, pk, dh, sp, cache_closes=cache_c, indicators=None)
+                # Compute indicators if strategy uses indicator-based sell conditions
+                _ind = None
+                if tk in cache and any(sp.get(k, 0) for k in ("use_rsi_sell", "use_macd_sell", "use_kd_sell", "sell_vol_shrink", "use_mom_exit")):
+                    try:
+                        _cs = cache[tk]
+                        _c = np.array(_cs["c"], dtype=np.float64)
+                        _h = np.array(_cs["h"], dtype=np.float64)
+                        _l = np.array(_cs["l"], dtype=np.float64)
+                        _v = np.array(_cs["v"], dtype=np.float64)
+                        _o = np.array(_cs["o"], dtype=np.float64) if _cs.get("o") and len(_cs["o"]) == len(_cs["c"]) else None
+                        if len(_c) >= 20:
+                            _ind = compute_indicators_with_state(_c, _h, _l, _v, states[tk], o=_o) if tk in states else compute_indicators(_c, _h, _l, _v, o=_o)
+                    except Exception:
+                        pass
+                reason = should_sell(bp, cur, pk, dh, sp, cache_closes=cache_c, indicators=_ind)
                 if reason:
                     _new_pending_sells.append({
                         "ticker": tk, "name": h.get("name", ""),

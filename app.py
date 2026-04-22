@@ -881,7 +881,22 @@ with tab3:
                 _cs_c = list(_swap_cache.get(_tk,{}).get("c",[])) if _tk in _swap_cache else None
                 if _cs_c is not None and market_data and _tk in market_data:
                     _cs_c = _cs_c + [market_data[_tk]["close"]]  # FIX M3: append today's close for MA60
-                _reason = should_sell(_bp, _cur, _pk, _dh, _sp, cache_closes=_cs_c, indicators=None)
+                # Compute indicators if strategy uses indicator-based sell conditions
+                _ind_t3 = None
+                if _tk in _swap_cache and any(_sp.get(k, 0) for k in ("use_rsi_sell", "use_macd_sell", "use_kd_sell", "sell_vol_shrink", "use_mom_exit")):
+                    try:
+                        import numpy as _np_t3
+                        from scanner import compute_indicators as _ci_t3
+                        _cs_t3 = _swap_cache[_tk]
+                        _c_t3 = _np_t3.array(list(_cs_t3["c"]) + ([market_data[_tk]["close"]] if _tk in market_data else []), dtype=_np_t3.float64)
+                        _h_t3 = _np_t3.array(list(_cs_t3["h"]) + ([market_data[_tk]["high"]] if _tk in market_data else []), dtype=_np_t3.float64)
+                        _l_t3 = _np_t3.array(list(_cs_t3["l"]) + ([market_data[_tk]["low"]] if _tk in market_data else []), dtype=_np_t3.float64)
+                        _v_t3 = _np_t3.array(list(_cs_t3["v"]) + ([market_data[_tk]["vol"]] if _tk in market_data else []), dtype=_np_t3.float64)
+                        if len(_c_t3) >= 20:
+                            _ind_t3 = _ci_t3(_c_t3, _h_t3, _l_t3, _v_t3)
+                    except Exception:
+                        pass
+                _reason = should_sell(_bp, _cur, _pk, _dh, _sp, cache_closes=_cs_c, indicators=_ind_t3)
 
             if _reason:
                 _sell_list.append({"name": _nm, "ticker": _tk, "reason": _reason, "ret": _ret, "dh": _dh, "buy_date": _bh.get("buy_date","")})
@@ -1057,7 +1072,20 @@ with tab3:
                     # Delegate to shared sell_rules (matches kernel 1:1)
                     from sell_rules import should_sell
                     _cs_c_sim = list(_cache[tk]["c"]) if tk in _cache else None
-                    reason = should_sell(bp, cur, pk, dh, _sp, cache_closes=_cs_c_sim, indicators=None)
+                    # Compute indicators if strategy uses indicator-based sell conditions
+                    _ind_ext = None
+                    if tk in _cache and any(_sp.get(k, 0) for k in ("use_rsi_sell", "use_macd_sell", "use_kd_sell", "sell_vol_shrink", "use_mom_exit")):
+                        try:
+                            _ei_end = _date_to_idx.get(sim_day, len(_cache[tk]["c"])-1) + 1
+                            if _ei_end >= 20:
+                                _ind_ext = compute_indicators(
+                                    _np.array(_cache[tk]["c"][:_ei_end], dtype=_np.float64),
+                                    _np.array(_cache[tk]["h"][:_ei_end], dtype=_np.float64),
+                                    _np.array(_cache[tk]["l"][:_ei_end], dtype=_np.float64),
+                                    _np.array(_cache[tk]["v"][:_ei_end], dtype=_np.float64))
+                        except Exception:
+                            pass
+                    reason = should_sell(bp, cur, pk, dh, _sp, cache_closes=_cs_c_sim, indicators=_ind_ext)
                     if reason:
                         # 理由格式統一（去掉 % 數，跟 GPU 一致）
                         for _pf, _cl in [("移動停利","移動停利"),("保本","保本出場"),("停損","停損"),
