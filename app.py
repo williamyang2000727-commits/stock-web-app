@@ -855,9 +855,9 @@ with tab3:
             _cal_list = sorted(_full_trading_cal or trading_cal or [])
             _days_since_scan = sum(1 for d in _cal_list if _scan_d < d <= _today_real) if _cal_list else 0
             _stale = _days_since_scan >= 2
-            # 今天是交易日但 scan_results 不是今天的 → daily_scan 還沒跑
-            _today_is_trading = _today_real in (_full_trading_cal or trading_cal or set())
-            if _today_is_trading and _scan_d < _today_real:
+            # scan 不是今天的 + 今天是工作日 → daily_scan 還沒跑
+            # 不依賴交易日曆快取（可能不含今天），直接看週一~週五
+            if _scan_d < _today_real and _today_real.weekday() < 5:
                 _scan_not_yet_today = True
         except:
             _stale = False
