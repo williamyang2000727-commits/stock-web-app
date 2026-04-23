@@ -112,8 +112,11 @@ def get_market_data():
     data, td = fetch_market_data()
     # Streamlit does NOT cache exceptions → bad fetch won't be cached,
     # next page load auto-retries. This is the permanent fix.
-    if len(data) < 500:
-        raise RuntimeError(f"Market data incomplete: {len(data)} stocks (need 500+)")
+    # Check BOTH exchanges: TWSE(.TW) and TPEx(.TWO) must each have data
+    _tw_n = sum(1 for k in data if ".TW" in k and ".TWO" not in k)
+    _otc_n = sum(1 for k in data if ".TWO" in k)
+    if _tw_n < 200 or _otc_n < 200:
+        raise RuntimeError(f"Market data incomplete: TWSE={_tw_n} TPEx={_otc_n} (need 200+ each)")
     return data, td
 
 
@@ -395,6 +398,9 @@ if strategy_params and history_cache and history_cache.get("stocks") and indicat
         scan = run_scan(dict(strategy_params), set(held_tickers), history_cache, indicator_states)
     except Exception:
         pass
+# If TWSE failed (0 listed stocks), live scan is useless → fall back to Gist
+if scan and scan.get("market_summary", {}).get("twse_count", 0) == 0:
+    scan = None
 if not scan or not scan.get("buy_signals"):
     scan = read_gist_file("scan_results.json")
 
