@@ -431,7 +431,7 @@ if user_holdings and strategy_params and market_data:
     try:
         from scanner import check_sell_signals
         _holdings_before = json.dumps(user_holdings)
-        user_sell_signals = check_sell_signals(user_holdings, strategy_params, market_data, history_cache, trading_cal)
+        user_sell_signals = check_sell_signals(user_holdings, strategy_params, market_data, history_cache, _full_trading_cal or trading_cal)
         if json.dumps(user_holdings) != _holdings_before:
             save_user_holdings(username, user_holdings, clear_cache=False)
     except Exception:
@@ -589,10 +589,10 @@ with tab2:
             buy_date_str = h.get("buy_date", "")
 
             # Trading days held (exact from TWSE calendar)
-            # 統一到 trading_days 模組
             from trading_days import count_between
-            days = count_between(buy_date_str, str(tw_today()),
-                                  fallback_calendar=[str(d) for d in trading_cal] if trading_cal else None)
+            _best_cal = _full_trading_cal or trading_cal
+            _fb_dates = [str(d) for d in _best_cal] if _best_cal else (history_cache.get("dates", []) if history_cache else None)
+            days = count_between(buy_date_str, str(tw_today()), fallback_calendar=_fb_dates)
 
             # Current price: TWSE/TPEx → Gist scan → Yahoo
             cur_price = None
