@@ -4,6 +4,10 @@ on:
   schedule:
     # 16:35 Taiwan time (UTC+8) = 08:35 UTC, Mon-Fri
     - cron: '35 8 * * 1-5'
+    # 16:50 backup (GitHub Actions 排隊延遲常見)
+    - cron: '50 8 * * 1-5'
+    # 17:10 safety net (最後防線)
+    - cron: '10 9 * * 1-5'
   workflow_dispatch: # Manual trigger
 
 jobs:
