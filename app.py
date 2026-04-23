@@ -390,17 +390,11 @@ if history_cache and cache_date and market_data and trading_date > cache_date:
     except Exception:
         pass
 
-# ── Live Scan (every load, uses states = exact results) ──
-scan = None
-if strategy_params and history_cache and history_cache.get("stocks") and indicator_states:
-    try:
-        from scanner import run_scan
-        scan = run_scan(dict(strategy_params), set(held_tickers), history_cache, indicator_states)
-    except Exception:
-        pass
-# If TWSE failed (0 listed stocks), live scan is useless → fall back to Gist
-if scan and scan.get("market_summary", {}).get("twse_count", 0) == 0:
-    scan = None
+# ── Buy Rankings: 永遠用 daily_scan 的 Gist 結果（穩定、一致）──
+# 不再跑 live scan — Streamlit Cloud 的 TWSE API 不穩定，
+# 導致排行在 live/Gist 之間跳來跳去。daily_scan 在 GitHub Actions
+# 上跑，TWSE 每次都成功（7000+ 支），結果可靠。
+scan = read_gist_file("scan_results.json")
 if not scan or not scan.get("buy_signals"):
     scan = read_gist_file("scan_results.json")
 
