@@ -848,14 +848,16 @@ with tab3:
         # FIX #2: stale = 超過 1 個交易日沒更新（正常 D+1 morning 不該觸發）
         _scan_not_yet_today = False
         try:
-            _today_d = date.fromisoformat(trading_date) if trading_date else tw_today()
-            _scan_d = date.fromisoformat(_d_date) if _d_date else _today_d
+            # 用真實日曆日期（tw_today），不用市場資料日期（trading_date）
+            # 因為 trading_date 可能跟 scan_date 相同（都是今天），但 scan 其實是昨天跑的
+            _today_real = tw_today()
+            _scan_d = date.fromisoformat(_d_date) if _d_date else _today_real
             _cal_list = sorted(_full_trading_cal or trading_cal or [])
-            _days_since_scan = sum(1 for d in _cal_list if _scan_d < d <= _today_d) if _cal_list else 0
-            _stale = _days_since_scan >= 2  # 只有落後 2+ 交易日才警告
-            # 今天是交易日但 scan_results 還是昨天的 → daily_scan 還沒跑
-            _today_is_trading = _today_d in (_full_trading_cal or trading_cal or set())
-            if _days_since_scan == 1 and _today_is_trading:
+            _days_since_scan = sum(1 for d in _cal_list if _scan_d < d <= _today_real) if _cal_list else 0
+            _stale = _days_since_scan >= 2
+            # 今天是交易日但 scan_results 不是今天的 → daily_scan 還沒跑
+            _today_is_trading = _today_real in (_full_trading_cal or trading_cal or set())
+            if _today_is_trading and _scan_d < _today_real:
                 _scan_not_yet_today = True
         except:
             _stale = False
