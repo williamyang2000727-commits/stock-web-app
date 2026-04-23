@@ -608,18 +608,11 @@ with tab2:
                     if sh.get("ticker") == ticker and sh.get("current_price", 0) > 0:
                         cur_price = sh["current_price"]
                         break
-            if not cur_price:
-                try:
-                    url = f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}"
-                    r = requests.get(url, params={"range": "5d", "interval": "1d"},
-                                     headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-                    closes = r.json()["chart"]["result"][0]["indicators"]["quote"][0]["close"]
-                    for cv in reversed(closes):
-                        if cv is not None:
-                            cur_price = round(cv, 2)
-                            break
-                except Exception:
-                    pass
+            # Fallback: Gist history cache（不用 Yahoo，避免 ADR/幣別問題）
+            if not cur_price and history_cache and history_cache.get("stocks"):
+                _fb_cs = history_cache["stocks"].get(ticker, {})
+                if _fb_cs and _fb_cs.get("c"):
+                    cur_price = _fb_cs["c"][-1]
 
             if cur_price and buy_price > 0:
                 ret = (cur_price / buy_price - 1) * 100
