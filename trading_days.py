@@ -62,8 +62,12 @@ def count_between(start_date_str, end_date_str, fallback_calendar=None):
         return 0
 
     dates = _get_calendar()
-    if not dates and fallback_calendar:
-        dates = sorted(str(d) for d in fallback_calendar)
+    # 合併 TWSE 日曆 + fallback（兩者取聯集，避免任一來源不完整）
+    if fallback_calendar:
+        fb = set(str(d) for d in fallback_calendar)
+        if dates:
+            fb.update(dates)
+        dates = sorted(fb)
 
     if dates:
         return sum(1 for d in dates if start_date_str < d <= end_date_str)
