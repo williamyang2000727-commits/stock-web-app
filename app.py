@@ -447,22 +447,19 @@ def _get_twse_ex_dividend_tickers(date_str):
 
 
 def _format_drop_warning(name, ticker, chg_pct, ex_set):
-    """Pick the right warning message for a large single-day drop.
-    ex_set: TWSE ex-dividend ticker codes for today, or None if unknown."""
+    """Message for a single-day drop >=5%.
+    Only claim "除權除息" when TWSE explicitly confirms it (ex_set contains
+    the ticker); otherwise stay neutral. Streamlit Cloud often cannot reach
+    TWSE from its US egress, so we must not pretend to know."""
     pure = ticker.split(".")[0]
     is_otc = ticker.endswith(".TWO")
-    if ex_set is not None and not is_otc:
-        if pure in ex_set:
-            return (f"⚠️ **{name}（{ticker}）確認除權除息（單日跌 {chg_pct:.1f}%）** — "
-                    f"實盤你會拿股息/配股，Web 用原始價計算會顯示虛假虧損。"
-                    f"請到「持倉管理」手動調整買入成本。")
-        return (f"🔻 **{name}（{ticker}）單日重跌 {chg_pct:.1f}%（非除權除息）** — "
-                f"TWSE 確認今日無除權息公告，這是真的下跌，請勿調整 buy_price。"
-                f"仍在策略停損範圍內則繼續持有。")
-    reason = "上櫃股票未自動驗證" if is_otc else "TWSE 查詢失敗"
-    return (f"⚠️ **{name}（{ticker}）單日跌 {chg_pct:.1f}%** — 疑似除權除息（{reason}）。"
-            f"實盤會拿股息/配股，Web 用原始價會顯示虛假虧損。"
-            f"請到銀行券商 App 查確認，再決定是否到「持倉管理」調整買入成本。")
+    if ex_set is not None and not is_otc and pure in ex_set:
+        return (f"⚠️ **{name}（{ticker}）TWSE 確認今日除權除息（單日跌 {chg_pct:.1f}%）** — "
+                f"實盤會拿股息/配股。請到「持倉管理」手動調整 buy_price。")
+    return (f"🔻 **{name}（{ticker}）單日重跌 {chg_pct:.1f}%** — 兩種可能：\n"
+            f"  1. 真實下跌 → 若仍在策略停損範圍內（-22%）則繼續持有，不要動 buy_price。\n"
+            f"  2. 除權除息（一年通常 1-2 次，多集中 7-9 月）→ 實盤會拿股息，"
+            f"請到銀行券商 App 確認配息公告後，到「持倉管理」調整 buy_price。")
 
 
 trading_cal = _get_trading_cal()
