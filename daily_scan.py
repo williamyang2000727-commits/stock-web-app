@@ -114,6 +114,49 @@ def fetch_market_data():
     return all_data, trading_date
 
 
+def fetch_ex_dividend_window(days_back=10, days_forward=5):
+    """Fetch TWSE 上市 ex-dividend tickers for a date window around today.
+    GitHub Actions runner can reach TWSE (unlike Streamlit Cloud US egress);
+    this is why the cron writes the cache to Data Gist for Web to consume.
+    TPEx (.TWO) openapi is broken as of 2026-04 and not covered.
+    Returns dict {"YYYY-MM-DD": ["1217", "1315", ...]} — only days with data."""
+    import time as _time
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Referer": "https://www.twse.com.tw/",
+    }
+    today = datetime.now(TW_TZ).date()
+    result = {}
+    for offset in range(-days_back, days_forward + 1):
+        d = today + timedelta(days=offset)
+        # Skip obvious weekends; TWSE returns empty set anyway but save a call
+        if d.weekday() >= 5:
+            continue
+        date_str = d.strftime("%Y-%m-%d")
+        yyyymmdd = d.strftime("%Y%m%d")
+        tickers = None
+        for _attempt in range(2):
+            try:
+                r = requests.get(
+                    "https://www.twse.com.tw/rwd/zh/exRight/TWT49U",
+                    params={"date": yyyymmdd, "response": "json"},
+                    headers=headers, timeout=12,
+                )
+                if r.status_code == 200:
+                    j = r.json()
+                    if j.get("stat") == "OK":
+                        tickers = [str(row[1]).strip() for row in (j.get("data") or []) if len(row) >= 2]
+                        break
+            except Exception:
+                pass
+            _time.sleep(1)
+        if tickers is not None:
+            result[date_str] = tickers
+        _time.sleep(0.3)  # gentle pacing
+    return result
+
 
 # Import shared indicator + scoring from scanner (single source of truth)
 # NOTE: must be able to import scanner module; this file runs in same dir
@@ -438,6 +481,19 @@ def main():
 
     # Write scan_results AFTER step 7 (includes pending fields)
     write_gist(DATA_GIST, "scan_results.json", scan_results)
+
+    # 8. Refresh ex-dividend cache for Web (Streamlit Cloud can't reach TWSE)
+    try:
+        _ex_window = fetch_ex_dividend_window()
+        if _ex_window:
+            write_gist(DATA_GIST, "ex_dividend.json", {
+                "updated": datetime.now(TW_TZ).isoformat(timespec="seconds"),
+                "tickers_by_date": _ex_window,
+            })
+            _today_tk = _ex_window.get(trading_date, [])
+            print(f"  Ex-dividend cache: {len(_ex_window)} days, today ({trading_date}): {len(_today_tk)} stocks")
+    except Exception as _e:
+        print(f"  Ex-dividend fetch failed (non-fatal): {_e}")
 
     print(f"Done! [{datetime.now(TW_TZ).strftime('%H:%M')}]")
 

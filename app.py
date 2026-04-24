@@ -412,54 +412,39 @@ def _get_full_trading_cal():
     return fetch_trading_calendar(months=48)
 
 
-@st.cache_data(ttl=600, show_spinner=False)
 def _get_twse_ex_dividend_tickers(date_str):
-    """Query TWSE ex-dividend list for a given date (YYYY-MM-DD).
-    Returns set of ticker codes (e.g. {'1217', '1315'}) going ex-dividend today.
-    Returns None on failure — caller falls back to conservative warning.
-    Covers 上市 (.TW) only; TPEx (.TWO) openapi currently unstable.
-
-    Streamlit Cloud (US) sometimes gets blocked or times out talking to TWSE;
-    send browser-like headers, retry 3x, and widen timeout to 15s.
-    Cache TTL reduced to 10min so a transient failure doesn't stick for an hour."""
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                      "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36",
-        "Accept": "application/json, text/plain, */*",
-        "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
-        "Referer": "https://www.twse.com.tw/",
-    }
-    params = {"date": date_str.replace("-", ""), "response": "json"}
-    for _ in range(3):
-        try:
-            r = requests.get(
-                "https://www.twse.com.tw/rwd/zh/exRight/TWT49U",
-                params=params, headers=headers, timeout=15,
-            )
-            if r.status_code == 200:
-                j = r.json()
-                if j.get("stat") == "OK":
-                    data = j.get("data") or []
-                    return {str(row[1]).strip() for row in data if len(row) >= 2}
-        except Exception:
-            pass
+    """Look up TWSE 上市 ex-dividend tickers for a given date (YYYY-MM-DD).
+    Reads from Data Gist's ex_dividend.json, which daily_scan (GitHub Actions)
+    refreshes every trading day 16:35 TW time. We read via Gist because
+    Streamlit Cloud (US egress) cannot reliably reach TWSE directly.
+    Returns set of ticker codes, or None if the date isn't cached."""
+    try:
+        ex_data = read_gist_file("ex_dividend.json") or {}
+        tickers_by_date = ex_data.get("tickers_by_date", {})
+        if date_str in tickers_by_date:
+            return set(tickers_by_date[date_str])
+    except Exception:
+        pass
     return None
 
 
 def _format_drop_warning(name, ticker, chg_pct, ex_set):
     """Message for a single-day drop >=5%.
-    Only claim "除權除息" when TWSE explicitly confirms it (ex_set contains
-    the ticker); otherwise stay neutral. Streamlit Cloud often cannot reach
-    TWSE from its US egress, so we must not pretend to know."""
+    ex_set is a set of ticker codes TWSE marked ex-dividend on trading_date,
+    or None when that day hasn't been cached yet (e.g. cron not run, or 上櫃)."""
     pure = ticker.split(".")[0]
     is_otc = ticker.endswith(".TWO")
-    if ex_set is not None and not is_otc and pure in ex_set:
-        return (f"⚠️ **{name}（{ticker}）TWSE 確認今日除權除息（單日跌 {chg_pct:.1f}%）** — "
-                f"實盤會拿股息/配股。請到「持倉管理」手動調整 buy_price。")
+    if ex_set is not None and not is_otc:
+        if pure in ex_set:
+            return (f"⚠️ **{name}（{ticker}）TWSE 確認今日除權除息（單日跌 {chg_pct:.1f}%）** — "
+                    f"實盤會拿股息/配股。請到「持倉管理」手動調整 buy_price。")
+        return (f"🔻 **{name}（{ticker}）單日重跌 {chg_pct:.1f}%（非除權除息）** — "
+                f"TWSE 確認今日無除權息公告，是真實下跌。若仍在策略停損範圍（-22%）內則繼續持有，"
+                f"不要動 buy_price。")
     return (f"🔻 **{name}（{ticker}）單日重跌 {chg_pct:.1f}%** — 兩種可能：\n"
-            f"  1. 真實下跌 → 若仍在策略停損範圍內（-22%）則繼續持有，不要動 buy_price。\n"
-            f"  2. 除權除息（一年通常 1-2 次，多集中 7-9 月）→ 實盤會拿股息，"
-            f"請到銀行券商 App 確認配息公告後，到「持倉管理」調整 buy_price。")
+            f"  1. 真實下跌 → 若仍在策略停損範圍（-22%）內則繼續持有，不要動 buy_price。\n"
+            f"  2. 除權除息（上櫃或 Gist 尚未更新）→ 請到銀行券商 App 確認配息公告，"
+            f"有股息則到「持倉管理」調 buy_price。")
 
 
 trading_cal = _get_trading_cal()
