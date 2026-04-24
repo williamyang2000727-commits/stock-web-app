@@ -412,24 +412,38 @@ def _get_full_trading_cal():
     return fetch_trading_calendar(months=48)
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
+@st.cache_data(ttl=600, show_spinner=False)
 def _get_twse_ex_dividend_tickers(date_str):
     """Query TWSE ex-dividend list for a given date (YYYY-MM-DD).
     Returns set of ticker codes (e.g. {'1217', '1315'}) going ex-dividend today.
     Returns None on failure — caller falls back to conservative warning.
-    Covers 上市 (.TW) only; TPEx (.TWO) openapi currently unstable."""
-    try:
-        r = requests.get(
-            "https://www.twse.com.tw/rwd/zh/exRight/TWT49U",
-            params={"date": date_str.replace("-", ""), "response": "json"},
-            timeout=8,
-        )
-        if r.status_code != 200:
-            return None
-        data = r.json().get("data") or []
-        return {str(row[1]).strip() for row in data if len(row) >= 2}
-    except Exception:
-        return None
+    Covers 上市 (.TW) only; TPEx (.TWO) openapi currently unstable.
+
+    Streamlit Cloud (US) sometimes gets blocked or times out talking to TWSE;
+    send browser-like headers, retry 3x, and widen timeout to 15s.
+    Cache TTL reduced to 10min so a transient failure doesn't stick for an hour."""
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36",
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "zh-TW,zh;q=0.9,en;q=0.8",
+        "Referer": "https://www.twse.com.tw/",
+    }
+    params = {"date": date_str.replace("-", ""), "response": "json"}
+    for _ in range(3):
+        try:
+            r = requests.get(
+                "https://www.twse.com.tw/rwd/zh/exRight/TWT49U",
+                params=params, headers=headers, timeout=15,
+            )
+            if r.status_code == 200:
+                j = r.json()
+                if j.get("stat") == "OK":
+                    data = j.get("data") or []
+                    return {str(row[1]).strip() for row in data if len(row) >= 2}
+        except Exception:
+            pass
+    return None
 
 
 def _format_drop_warning(name, ticker, chg_pct, ex_set):
