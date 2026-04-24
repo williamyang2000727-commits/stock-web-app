@@ -2,13 +2,23 @@ name: Daily Stock Scan
 
 on:
   schedule:
-    # 16:35 Taiwan time (UTC+8) = 08:35 UTC, Mon-Fri
-    - cron: '35 8 * * 1-5'
-    # 16:50 backup (GitHub Actions 排隊延遲常見)
-    - cron: '50 8 * * 1-5'
-    # 17:10 safety net (最後防線)
-    - cron: '10 9 * * 1-5'
+    # GitHub Actions cron 延遲/skip 常見，多排點提高命中率。
+    # daily_scan.py 本身是 idempotent（date 相同的第二次執行會 noop），安全。
+    # 全為台灣時間（UTC+8），週一到週五
+    - cron: '35 8 * * 1-5'   # 16:35
+    - cron: '40 8 * * 1-5'   # 16:40
+    - cron: '45 8 * * 1-5'   # 16:45
+    - cron: '50 8 * * 1-5'   # 16:50
+    - cron: '55 8 * * 1-5'   # 16:55
+    - cron: '0 9 * * 1-5'    # 17:00
+    - cron: '5 9 * * 1-5'    # 17:05
+    - cron: '10 9 * * 1-5'   # 17:10
+    - cron: '20 9 * * 1-5'   # 17:20
+    - cron: '30 9 * * 1-5'   # 17:30
+    - cron: '0 10 * * 1-5'   # 18:00 — 終極防線
   workflow_dispatch: # Manual trigger
+  repository_dispatch:   # 外部服務（Cloudflare Worker / cron-job.org）可觸發
+    types: [daily-scan]
 
 jobs:
   scan:
