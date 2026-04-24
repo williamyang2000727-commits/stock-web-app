@@ -114,47 +114,46 @@ def fetch_market_data():
     return all_data, trading_date
 
 
-def fetch_ex_dividend_window(days_back=10, days_forward=5):
-    """Fetch TWSE 上市 ex-dividend tickers for a date window around today.
-    GitHub Actions runner can reach TWSE (unlike Streamlit Cloud US egress);
-    this is why the cron writes the cache to Data Gist for Web to consume.
+def fetch_ex_dividend_window():
+    """Fetch TWSE 上市 ex-dividend schedule via TWT48U (預告表).
+    TWT48U returns ~30 upcoming ex-dividend events; each row's row[0] carries
+    its own ROC date (e.g. "115年04月23日"), so one call gives us a window of
+    ~2 months forward. GitHub Actions runner can reach TWSE (unlike Streamlit
+    Cloud US egress) — that's why the cron writes the cache to Data Gist.
     TPEx (.TWO) openapi is broken as of 2026-04 and not covered.
-    Returns dict {"YYYY-MM-DD": ["1217", "1315", ...]} — only days with data."""
-    import time as _time
+    Returns dict {"YYYY-MM-DD": ["1217", ...]}; empty dict on failure."""
+    import time as _time, re as _re
     headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
                       "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36",
         "Accept": "application/json, text/plain, */*",
         "Referer": "https://www.twse.com.tw/",
     }
-    today = datetime.now(TW_TZ).date()
     result = {}
-    for offset in range(-days_back, days_forward + 1):
-        d = today + timedelta(days=offset)
-        # Skip obvious weekends; TWSE returns empty set anyway but save a call
-        if d.weekday() >= 5:
-            continue
-        date_str = d.strftime("%Y-%m-%d")
-        yyyymmdd = d.strftime("%Y%m%d")
-        tickers = None
-        for _attempt in range(2):
-            try:
-                r = requests.get(
-                    "https://www.twse.com.tw/rwd/zh/exRight/TWT49U",
-                    params={"date": yyyymmdd, "response": "json"},
-                    headers=headers, timeout=12,
-                )
-                if r.status_code == 200:
-                    j = r.json()
-                    if j.get("stat") == "OK":
-                        tickers = [str(row[1]).strip() for row in (j.get("data") or []) if len(row) >= 2]
-                        break
-            except Exception:
-                pass
-            _time.sleep(1)
-        if tickers is not None:
-            result[date_str] = tickers
-        _time.sleep(0.3)  # gentle pacing
+    for _attempt in range(3):
+        try:
+            r = requests.get(
+                "https://www.twse.com.tw/exchangeReport/TWT48U",
+                params={"response": "json"}, headers=headers, timeout=15,
+            )
+            if r.status_code != 200:
+                _time.sleep(2); continue
+            j = r.json()
+            if j.get("stat") != "OK":
+                _time.sleep(2); continue
+            for row in j.get("data") or []:
+                if len(row) < 2:
+                    continue
+                m = _re.match(r"(\d+)年(\d+)月(\d+)日", row[0])
+                if not m:
+                    continue
+                yr = int(m.group(1)) + 1911
+                mo, dy = int(m.group(2)), int(m.group(3))
+                date_str = f"{yr:04d}-{mo:02d}-{dy:02d}"
+                result.setdefault(date_str, []).append(str(row[1]).strip())
+            break
+        except Exception:
+            _time.sleep(2)
     return result
 
 
@@ -484,14 +483,21 @@ def main():
 
     # 8. Refresh ex-dividend cache for Web (Streamlit Cloud can't reach TWSE)
     try:
-        _ex_window = fetch_ex_dividend_window()
-        if _ex_window:
+        _ex_new = fetch_ex_dividend_window()
+        if _ex_new:
+            # Merge with existing Gist content to preserve historical dates.
+            # TWT48U only returns ~2 months forward, so past dates must survive
+            # via the cumulative cache. Drop cache entries older than 60 days.
+            _ex_old = (data_gist.get("ex_dividend.json") or {}).get("tickers_by_date", {})
+            _cutoff = (datetime.now(TW_TZ).date() - timedelta(days=60)).isoformat()
+            _merged = {d: tks for d, tks in _ex_old.items() if d >= _cutoff}
+            _merged.update(_ex_new)  # new data overrides same-date old entries
             write_gist(DATA_GIST, "ex_dividend.json", {
                 "updated": datetime.now(TW_TZ).isoformat(timespec="seconds"),
-                "tickers_by_date": _ex_window,
+                "tickers_by_date": _merged,
             })
-            _today_tk = _ex_window.get(trading_date, [])
-            print(f"  Ex-dividend cache: {len(_ex_window)} days, today ({trading_date}): {len(_today_tk)} stocks")
+            _today_tk = _merged.get(trading_date, [])
+            print(f"  Ex-dividend cache: {len(_merged)} days (new {len(_ex_new)}, today {trading_date}: {len(_today_tk)} stocks)")
     except Exception as _e:
         print(f"  Ex-dividend fetch failed (non-fatal): {_e}")
 
