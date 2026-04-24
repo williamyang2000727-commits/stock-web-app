@@ -411,6 +411,46 @@ def _get_full_trading_cal():
     from scanner import fetch_trading_calendar
     return fetch_trading_calendar(months=48)
 
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _get_twse_ex_dividend_tickers(date_str):
+    """Query TWSE ex-dividend list for a given date (YYYY-MM-DD).
+    Returns set of ticker codes (e.g. {'1217', '1315'}) going ex-dividend today.
+    Returns None on failure — caller falls back to conservative warning.
+    Covers 上市 (.TW) only; TPEx (.TWO) openapi currently unstable."""
+    try:
+        r = requests.get(
+            "https://www.twse.com.tw/rwd/zh/exRight/TWT49U",
+            params={"date": date_str.replace("-", ""), "response": "json"},
+            timeout=8,
+        )
+        if r.status_code != 200:
+            return None
+        data = r.json().get("data") or []
+        return {str(row[1]).strip() for row in data if len(row) >= 2}
+    except Exception:
+        return None
+
+
+def _format_drop_warning(name, ticker, chg_pct, ex_set):
+    """Pick the right warning message for a large single-day drop.
+    ex_set: TWSE ex-dividend ticker codes for today, or None if unknown."""
+    pure = ticker.split(".")[0]
+    is_otc = ticker.endswith(".TWO")
+    if ex_set is not None and not is_otc:
+        if pure in ex_set:
+            return (f"⚠️ **{name}（{ticker}）確認除權除息（單日跌 {chg_pct:.1f}%）** — "
+                    f"實盤你會拿股息/配股，Web 用原始價計算會顯示虛假虧損。"
+                    f"請到「持倉管理」手動調整買入成本。")
+        return (f"🔻 **{name}（{ticker}）單日重跌 {chg_pct:.1f}%（非除權除息）** — "
+                f"TWSE 確認今日無除權息公告，這是真的下跌，請勿調整 buy_price。"
+                f"仍在策略停損範圍內則繼續持有。")
+    reason = "上櫃股票未自動驗證" if is_otc else "TWSE 查詢失敗"
+    return (f"⚠️ **{name}（{ticker}）單日跌 {chg_pct:.1f}%** — 疑似除權除息（{reason}）。"
+            f"實盤會拿股息/配股，Web 用原始價會顯示虛假虧損。"
+            f"請到銀行券商 App 查確認，再決定是否到「持倉管理」調整買入成本。")
+
+
 trading_cal = _get_trading_cal()
 _full_trading_cal = _get_full_trading_cal()
 
@@ -467,6 +507,7 @@ with tab0:
         _tab0_is_trading = False
     if user_holdings and market_data and len(market_data) >= 500 and _tab0_is_trading:
         _user_cache = history_cache.get("stocks", {}) if history_cache else {}
+        _user_ex_set = _get_twse_ex_dividend_tickers(trading_date)
         for _uh in user_holdings:
             _utk = _uh.get("ticker", "")
             _unm = _uh.get("name", _utk)
@@ -485,8 +526,7 @@ with tab0:
                     _uchg = (_uinfo["close"] / _ulast - 1) * 100 if _ulast > 0 else 0
                     if _uchg <= -5:
                         _user_edge_warnings.append(
-                            f"⚠️ **{_unm}（{_utk}）單日跌 {_uchg:.1f}%** — 疑似除權除息。實盤你會拿股息/配股，"
-                            f"但 Web 會算成虧損。請到「持倉管理」手動調整買入成本。"
+                            _format_drop_warning(_unm, _utk, _uchg, _user_ex_set)
                         )
     if _user_edge_warnings:
         for _w in _user_edge_warnings:
@@ -761,6 +801,7 @@ with tab3:
     except:
         _today_is_trading = False
     if _bt_holding and market_data and len(market_data) >= 500 and _today_is_trading:
+        _bt_ex_set = _get_twse_ex_dividend_tickers(trading_date)
         for _bh in _bt_holding:
             _tk = _bh.get("ticker", "")
             _nm = _bh.get("name", _tk)
@@ -782,14 +823,12 @@ with tab3:
                 elif _cs_list:
                     _last_c = _cs_list[-1]
             _today_c = _info["close"]
-            # 除權除息：今日 close vs 昨日 close 跌 >=5% 且有成交，疑似
+            # 單日跌 >=5% 且有成交 → 查 TWSE 除權息 API 確認是除權息還是真跌
             if _last_c and _last_c > 0:
                 _daily_change = (_today_c / _last_c - 1) * 100
                 if _daily_change <= -5:
                     _edge_warnings.append(
-                        f"⚠️ **{_nm}（{_tk}）單日跌 {_daily_change:.1f}%** — 疑似除權除息。"
-                        f"實盤你會拿到股息/配股，Web 用原始價計算會顯示虛假虧損。"
-                        f"請到「持倉管理」手動調整買入成本（或到銀行券商 App 查除權日）。"
+                        _format_drop_warning(_nm, _tk, _daily_change, _bt_ex_set)
                     )
                 # 跌停：今日開盤相對昨日收盤跌 >=9.5%
                 _open_p = _info.get("open", _today_c)
