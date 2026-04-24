@@ -439,10 +439,10 @@ def _format_drop_warning(name, ticker, chg_pct, ex_set):
             return (f"⚠️ **{name}（{ticker}）TWSE 確認今日除權除息（單日跌 {chg_pct:.1f}%）** — "
                     f"實盤會拿股息/配股。請到「持倉管理」手動調整 buy_price。")
         return (f"🔻 **{name}（{ticker}）單日重跌 {chg_pct:.1f}%（非除權除息）** — "
-                f"TWSE 確認今日無除權息公告，是真實下跌。若仍在策略停損範圍（-22%）內則繼續持有，"
+                f"TWSE 確認今日無除權息公告，是真實下跌。若仍在策略停損範圍（-20%）內則繼續持有，"
                 f"不要動 buy_price。")
     return (f"🔻 **{name}（{ticker}）單日重跌 {chg_pct:.1f}%** — 兩種可能：\n"
-            f"  1. 真實下跌 → 若仍在策略停損範圍（-22%）內則繼續持有，不要動 buy_price。\n"
+            f"  1. 真實下跌 → 若仍在策略停損範圍（-20%）內則繼續持有，不要動 buy_price。\n"
             f"  2. 除權除息（上櫃或 Gist 尚未更新）→ 請到銀行券商 App 確認配息公告，"
             f"有股息則到「持倉管理」調 buy_price。")
 
