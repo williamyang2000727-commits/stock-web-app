@@ -476,24 +476,11 @@ def main():
                     h_item["return_pct"] = round((cur / h_item["buy_price"] - 1) * 100, 1) if h_item["buy_price"] > 0 else 0
                     h_item["hold_days"] = count_between(h_item.get("buy_date", ""), trading_date, fallback_calendar=_fallback_cal)
 
-            all_trades = sorted(bt_trades + sim_holdings, key=lambda t: t.get("buy_date", ""))
-            bt_data["trades"] = all_trades
-            _completed_refresh = [t for t in all_trades if t.get("reason") != "持有中"]
-            _rets_refresh = [t.get("return_pct", 0) for t in _completed_refresh]
-            _wins_refresh = [r for r in _rets_refresh if r > 0]
-            _losses_refresh = [r for r in _rets_refresh if r <= 0]
-            bt_data["stats"]["end_date"] = trading_date
-            bt_data["stats"]["total_trades"] = len(_completed_refresh)
-            bt_data["stats"]["total_return_pct"] = round(sum(_rets_refresh), 1)
-            bt_data["stats"]["win_rate"] = round(len(_wins_refresh) / len(_rets_refresh) * 100, 1) if _rets_refresh else 0
-            bt_data["stats"]["avg_return"] = round(sum(_rets_refresh) / len(_rets_refresh), 1) if _rets_refresh else 0
-            bt_data["stats"]["avg_win"] = round(sum(_wins_refresh) / len(_wins_refresh), 1) if _wins_refresh else 0
-            bt_data["stats"]["avg_loss"] = round(sum(_losses_refresh) / len(_losses_refresh), 1) if _losses_refresh else 0
-            bt_data["stats"]["max_win"] = round(max(_rets_refresh), 1) if _rets_refresh else 0
-            bt_data["stats"]["max_loss"] = round(min(_rets_refresh), 1) if _rets_refresh else 0
-            bt_data["stats"]["avg_hold_days"] = round(sum(t.get("hold_days", 0) for t in _completed_refresh) / len(_completed_refresh), 1) if _completed_refresh else 0
-            write_gist(DATA_GIST, "backtest_results.json", bt_data)
-            print(f"  Backtest: {len(_completed_refresh)} completed + {len(sim_holdings)} holding | total {bt_data['stats']['total_return_pct']}% wr {bt_data['stats']['win_rate']}%")
+            # ⚠️ 不再寫 backtest_results.json（17:00 Windows pipeline rebuild_tab3 會用
+            # cpu_replay 1500 天真公式重建，蓋過去）
+            # 這裡 Phase A/B 仍然要跑（為了算 scan_results 的 pending），但不寫 Gist
+            # 避免 16:35-17:00 之間 Tab 3 看到 80 天版失真資料
+            print(f"  Phase A/B 完成（{len(sim_holdings)} 檔持有中）— backtest_results.json 由 17:00 pipeline 重建，daily_scan 不寫")
 
     # Write scan_results AFTER step 7 (includes pending fields)
     write_gist(DATA_GIST, "scan_results.json", scan_results)
