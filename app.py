@@ -490,7 +490,7 @@ signal_label = f"🔴 訊號 ({signal_count})" if signal_count > 0 else "訊號"
 
 # ══════════════════════════════════════════════════════════════
 # ⭐ Pipeline 新鮮度警告（全域，4 個 tab 都看得到）
-# Pipeline 每日 17:00 跑（auto_daily_pipeline.py），重置 state Gist + Tab 3
+# Pipeline 每日 16:30 跑（auto_daily_pipeline.py），重置 state Gist + Tab 3
 # 跑完前所有訊號（Tab 0 訊號 / Tab 1 買入排行 / Tab 3 回測）都可能是 daily_scan 80 天版本
 # 跟 cpu_replay 1500 天真公式可能偏差（曾把達邁排第 1 但 cpu_replay 應選聯茂）
 # ══════════════════════════════════════════════════════════════
@@ -507,7 +507,7 @@ if _is_weekday_pipe and _after_settle and not _pipeline_ran_today:
     if not _pipeline_updated:
         st.warning(
             f"⚠️ **這是舊資料（daily_scan 80 天版本，可能跟 cpu_replay 真公式偏差）**\n\n"
-            f"自動 pipeline 還沒跑（每日 17:00 Windows 排程）。"
+            f"自動 pipeline 還沒跑（每日 16:30 Windows 排程）。"
             f"訊號 / 買入排行 / 回測都可能是失真版，僅供參考。"
         )
     else:

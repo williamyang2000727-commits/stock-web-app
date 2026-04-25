@@ -6,9 +6,9 @@ name: Pipeline Watchdog
 
 on:
   schedule:
-    # 19:30 台灣 = 11:30 UTC（pipeline 17:00 + retry 18:00 19:00 都該跑完）
-    - cron: '30 11 * * 1-5'
-    # 21:00 第二次警報（如果第一次沒看到）
+    # 19:00 台灣 = 11:00 UTC（pipeline 16:30 + retry 17:30 + 18:30 都該跑完）
+    - cron: '0 11 * * 1-5'
+    # 21:00 第二次警報（如果第一次沒看到 Telegram）
     - cron: '0 13 * * 1-5'
   workflow_dispatch:
 
