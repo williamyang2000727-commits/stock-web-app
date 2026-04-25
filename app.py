@@ -488,6 +488,42 @@ if _effective_holdings < max_positions and scan:
 signal_count = len(user_buy_signals) + len(user_sell_signals)
 signal_label = f"🔴 訊號 ({signal_count})" if signal_count > 0 else "訊號"
 
+# ══════════════════════════════════════════════════════════════
+# ⭐ Pipeline 新鮮度警告（全域，4 個 tab 都看得到）
+# Pipeline 每日 17:00 跑（auto_daily_pipeline.py），重置 state Gist + Tab 3
+# 跑完前所有訊號（Tab 0 訊號 / Tab 1 買入排行 / Tab 3 回測）都可能是 daily_scan 80 天版本
+# 跟 cpu_replay 1500 天真公式可能偏差（曾把達邁排第 1 但 cpu_replay 應選聯茂）
+# ══════════════════════════════════════════════════════════════
+import datetime as _dt_pipe
+_now_tw_pipe = _dt_pipe.datetime.now(_dt_pipe.timezone(_dt_pipe.timedelta(hours=8)))
+_bt_for_freshness = read_gist_file("backtest_results.json")
+_pipeline_updated = (_bt_for_freshness or {}).get("stats", {}).get("pipeline_updated", "")
+_pipeline_today = _now_tw_pipe.strftime("%Y-%m-%d")
+_pipeline_ran_today = _pipeline_updated.startswith(_pipeline_today)
+_is_weekday_pipe = _now_tw_pipe.weekday() < 5
+_after_settle = _now_tw_pipe.hour >= 17 or (_now_tw_pipe.hour == 16 and _now_tw_pipe.minute >= 30)
+
+if _is_weekday_pipe and _after_settle and not _pipeline_ran_today:
+    if not _pipeline_updated:
+        st.warning(
+            f"⚠️ **這是舊資料（daily_scan 80 天版本，可能跟 cpu_replay 真公式偏差）**\n\n"
+            f"自動 pipeline 還沒跑（每日 17:00 Windows 排程）。"
+            f"訊號 / 買入排行 / 回測都可能是失真版，僅供參考。"
+        )
+    else:
+        try:
+            _pu_dt = _dt_pipe.datetime.fromisoformat(_pipeline_updated)
+            _hours_old = (_now_tw_pipe - _pu_dt).total_seconds() / 3600
+            if _hours_old > 24:
+                st.warning(
+                    f"⚠️ **這是舊資料 — Pipeline 已 {_hours_old:.0f} 小時沒跑**（最後 {_pipeline_updated[:19]}）\n\n"
+                    f"訊號 / 買入排行 / 回測都可能跟 cpu_replay 真公式偏差。Windows 排程可能掛了。"
+                )
+        except Exception:
+            pass
+elif _pipeline_ran_today:
+    st.success(f"✅ Pipeline 今日 {_pipeline_updated[11:19]} 已跑 — 所有資料對齊 cpu_replay 真公式（1500 天）")
+
 # ── Tabs ──
 tab0, tab1, tab2, tab3 = st.tabs([signal_label, "📊 買入排行", "💼 持倉管理", "📋 回測績效"])
 
@@ -751,40 +787,7 @@ with tab3:
     bt_stats = backtest.get("stats", {}) if backtest else {}
     bt_trades = backtest.get("trades", []) if backtest else []
 
-    # === ⭐ Pipeline 新鮮度警告（auto_daily_pipeline 跑過嗎？）===
-    # Pipeline 每日 17:00 跑，跑完 stats.pipeline_updated 是當天 ISO 時間戳
-    # 如果今天 17:00 過了但 pipeline_updated 不是今天 → 顯示「舊資料」警告
-    import datetime as _dt_pipe
-    _now_tw = _dt_pipe.datetime.now(_dt_pipe.timezone(_dt_pipe.timedelta(hours=8)))
-    _pipeline_updated = bt_stats.get("pipeline_updated", "")
-    _pipeline_today = _now_tw.strftime("%Y-%m-%d")
-    _pipeline_ran_today = _pipeline_updated.startswith(_pipeline_today)
-    # 17:00 後才該顯示警告（之前 pipeline 還沒跑是正常）
-    _is_weekday = _now_tw.weekday() < 5
-    _after_pipeline_time = _now_tw.hour >= 17 or (_now_tw.hour == 16 and _now_tw.minute >= 30)
-    if _is_weekday and _after_pipeline_time and not _pipeline_ran_today:
-        if not _pipeline_updated:
-            st.warning(
-                f"⚠️ **此資料可能是舊版本（daily_scan 80 天 cold start 增量版，可能跟 cpu_replay 真公式偏差）**\n\n"
-                f"自動 pipeline 尚未在 Windows 跑（每日 17:00 排程）。"
-                f"看到的數字僅供參考，不代表 89.905 真實設計能力。"
-            )
-        else:
-            try:
-                _pu_dt = _dt_pipe.datetime.fromisoformat(_pipeline_updated)
-                _hours_old = (_now_tw - _pu_dt).total_seconds() / 3600
-                if _hours_old > 24:
-                    st.warning(
-                        f"⚠️ **Auto pipeline 已 {_hours_old:.0f} 小時沒跑**（最後 {_pipeline_updated[:19]}）\n\n"
-                        f"Tab 3 顯示的可能是 daily_scan 80 天版本（跟 cpu_replay 真公式可能偏差）。"
-                        f"Windows 排程可能掛了，請手動跑 `python auto_daily_pipeline.py`"
-                    )
-            except Exception:
-                pass
-    elif _pipeline_ran_today:
-        # 跑過了，給一個小綠勾安心
-        st.caption(f"✅ Pipeline 今日 {_pipeline_updated[11:19]} 已跑（cpu_replay 1500 天真公式，與設計對齊）")
-
+    # Pipeline 警告已移到全域顯示（line ~492），4 個 tab 都看得到
     # === 🔴 延續交易新鮮度檢查（保證資料永遠最新）===
     _bt_end_check = bt_stats.get("end_date", "")
     _cache_updated_check = history_cache.get("updated", "") if history_cache else ""
