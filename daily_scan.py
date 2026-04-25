@@ -34,10 +34,27 @@ def read_gist(gist_id):
     return result
 
 
-def write_gist(gist_id, filename, data):
+def write_gist(gist_id, filename, data, max_retry=3):
+    """Write Gist with retry. Returns True on success, raises RuntimeError on persistent failure.
+
+    重要：state Gist + history cache 必須原子性寫入，失敗會導致 state vs cache 失同步
+    → 下次 daily_scan 把今天 K 重複加進 state（double-update），EMA/ATR/ADX 永久偏差。
+    所以失敗時 raise，讓 GitHub Actions workflow 標記 fail，下次重跑會走完整流程。
+    """
+    import time as _t
     payload = {"files": {filename: {"content": json.dumps(data, ensure_ascii=False)}}}
-    r = requests.patch(f"https://api.github.com/gists/{gist_id}", headers=HEADERS, json=payload, timeout=60)
-    return r.status_code == 200
+    last_err = None
+    for attempt in range(max_retry):
+        try:
+            r = requests.patch(f"https://api.github.com/gists/{gist_id}", headers=HEADERS, json=payload, timeout=60)
+            if r.status_code == 200:
+                return True
+            last_err = f"status={r.status_code} body={r.text[:200]}"
+        except Exception as e:
+            last_err = str(e)
+        if attempt < max_retry - 1:
+            _t.sleep(2 ** attempt)  # 1s, 2s, 4s exponential backoff
+    raise RuntimeError(f"write_gist({filename}) failed after {max_retry} attempts: {last_err}")
 
 
 def fetch_market_data():
