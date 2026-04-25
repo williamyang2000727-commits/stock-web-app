@@ -522,7 +522,9 @@ if _is_weekday_pipe and _after_settle and not _pipeline_ran_today:
         except Exception:
             pass
 elif _pipeline_ran_today:
-    st.success(f"✅ Pipeline 今日 {_pipeline_updated[11:19]} 已跑 — 所有資料對齊 cpu_replay 真公式（1500 天）")
+    # 從 backtest stats 拿真實全期天數（每天會增加）
+    _real_days = (_bt_for_freshness or {}).get("stats", {}).get("total_days", "?")
+    st.success(f"✅ Pipeline 今日 {_pipeline_updated[11:19]} 已跑 — 所有資料對齊 cpu_replay 真公式（全期 {_real_days} 天）")
 
 # ── Tabs ──
 tab0, tab1, tab2, tab3 = st.tabs([signal_label, "📊 買入排行", "💼 持倉管理", "📋 回測績效"])
