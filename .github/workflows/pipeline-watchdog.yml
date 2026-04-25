@@ -1,0 +1,93 @@
+name: Pipeline Watchdog
+
+# 偵測 William Windows 機器的 auto_daily_pipeline 是否成功跑
+# 條件：state Gist 的 updated 是不是今日（17:00 後該是今日）
+# 沒跑 → Telegram 通知 William 開電腦手動跑
+
+on:
+  schedule:
+    # 19:30 台灣 = 11:30 UTC（pipeline 17:00 + retry 18:00 19:00 都該跑完）
+    - cron: '30 11 * * 1-5'
+    # 21:00 第二次警報（如果第一次沒看到）
+    - cron: '0 13 * * 1-5'
+  workflow_dispatch:
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check pipeline freshness
+        env:
+          GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
+          # Telegram bot 是 hardcoded（同 stock_secrets.md，不是密級資料）
+          TELEGRAM_BOT_TOKEN: "8551169875:AAF48gHaISTcKgAAZ_CXCOFoG0ZT21aN0RI"
+          TELEGRAM_CHAT_ID: "5785839733"
+        run: |
+          python3 << 'EOF'
+          import os, json, urllib.request, urllib.parse, ssl
+          from datetime import datetime, timezone, timedelta
+
+          TW_TZ = timezone(timedelta(hours=8))
+          today = datetime.now(TW_TZ).strftime("%Y-%m-%d")
+          weekday = datetime.now(TW_TZ).weekday()
+          if weekday >= 5:
+              print(f"週末 ({weekday})，不檢查")
+              exit(0)
+
+          token = os.environ["GIST_TOKEN"]
+
+          def fetch(gist_id, fname):
+              req = urllib.request.Request(
+                  f"https://api.github.com/gists/{gist_id}",
+                  headers={"Authorization": f"token {token}"}
+              )
+              return json.loads(json.loads(urllib.request.urlopen(req, timeout=30).read())["files"][fname]["content"])
+
+          def alert(msg):
+              ctx = ssl.create_default_context()
+              ctx.check_hostname = False
+              ctx.verify_mode = ssl.CERT_NONE
+              url = f"https://api.telegram.org/bot{os.environ['TELEGRAM_BOT_TOKEN']}/sendMessage"
+              data = urllib.parse.urlencode({
+                  "chat_id": os.environ["TELEGRAM_CHAT_ID"],
+                  "text": msg,
+                  "parse_mode": "Markdown",
+              }).encode()
+              req = urllib.request.Request(url, data=data)
+              urllib.request.urlopen(req, context=ctx, timeout=15)
+              print("Telegram sent")
+
+          alerts = []
+
+          # 檢查 1：state Gist updated 是今日
+          try:
+              state = fetch("18a7270d897c8821b291cfd61796bd80", "indicator_state.json")
+              su = state.get("updated", "")
+              n_ticker = len(state.get("states", {}))
+              print(f"State Gist: updated={su}, tickers={n_ticker}")
+              if su != today:
+                  alerts.append(f"⚠️ state Gist updated={su}（不是今日 {today}）")
+              if n_ticker < 1500:
+                  alerts.append(f"⚠️ state Gist 只有 {n_ticker} ticker (< 1500)")
+          except Exception as e:
+              alerts.append(f"❌ 讀 state Gist 失敗: {e}")
+
+          # 檢查 2：backtest pipeline_updated 是今日
+          try:
+              bt = fetch("e1159b02a87d3c6ee9f33fb9ef61bb80", "backtest_results.json")
+              pu = bt.get("stats", {}).get("pipeline_updated", "")
+              print(f"Tab 3: pipeline_updated={pu}")
+              if not pu.startswith(today):
+                  alerts.append(f"⚠️ Tab 3 pipeline_updated={pu[:19]}（今日 {today} 沒跑 rebuild_tab3）")
+          except Exception as e:
+              alerts.append(f"❌ 讀 Tab 3 失敗: {e}")
+
+          if alerts:
+              msg = "🚨 *Auto Pipeline 沒跑警報*\n\n" + "\n".join(alerts)
+              msg += f"\n\n可能原因：Windows 停電/沒開機/排程掛了\n"
+              msg += "→ 開電腦跑：`python auto_daily_pipeline.py --force`"
+              alert(msg)
+              print(f"\n發出 {len(alerts)} 個警報")
+          else:
+              print(f"\n✅ Pipeline 健康，state + Tab 3 都是今日 ({today})")
+          EOF
