@@ -1050,7 +1050,13 @@ with tab3:
                            f"今日掃描**無達標候選**（score < {int(_sp.get('buy_threshold', 8))}），"
                            f"明日 16:35 再掃描。")
             else:
-                st.info(f"目前沒有要換股（{_held_count} 檔持有中，無賣出訊號）")
+                # 列出持倉名稱，明確告訴用戶「繼續持有不要動」
+                _hold_names = "、".join(f"{h.get('name', '')}（{h.get('ticker','')}）" for h in _bt_holding)
+                st.info(
+                    f"✋ **{_nd_str}（{_wd[_nd.weekday()]}）無動作 — 繼續持有 {_held_count} 檔**\n\n"
+                    f"持倉：{_hold_names}\n\n"
+                    f"今日掃描無賣出訊號、滿倉無新買入。明日 16:35 再掃描。"
+                )
         st.markdown("---")
 
     # === Auto-extend backtest from GPU end to today ===
