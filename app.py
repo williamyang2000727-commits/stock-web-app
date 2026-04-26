@@ -1386,8 +1386,15 @@ with tab3:
         if bt_trades:
             trade_rows = []
             for t in bt_trades:
-                ret = t.get("return_pct", 0)
                 _holding = t.get("reason") == "持有中"
+                # 雙價系統：「持有中」優先用 display_price (TWSE/TPEx unadjusted) 顯示
+                # display_price 由 rebuild_tab3 寫入；歷史完成 trade 用 sell_price (adjusted)
+                if _holding and t.get("display_price"):
+                    show_price = t.get("display_price")
+                    ret = t.get("display_return_pct", t.get("return_pct", 0))
+                else:
+                    show_price = t.get("sell_price", 0)
+                    ret = t.get("return_pct", 0)
                 icon = "📌" if _holding else ("🟢" if ret > 0 else "🔴" if ret < 0 else "⚪")
                 trade_rows.append({
                     "": icon,
@@ -1395,7 +1402,7 @@ with tab3:
                     "買入日": t.get("buy_date", ""),
                     "賣出日": "—" if _holding else (t.get("sell_date", "") or "—"),
                     "買入價": t.get("buy_price", 0),
-                    "賣出/現價": t.get("sell_price", 0),
+                    "賣出/現價": show_price,
                     "報酬%": f"{ret:+.1f}%",
                     "天數": t.get("hold_days", 0),
                     "狀態": "持有中" if _holding else t.get("reason", ""),
