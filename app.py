@@ -188,6 +188,7 @@ def save_user_holdings(username, holdings, clear_cache=True):
         "holdings": holdings,
         "updated": tw_now().isoformat(),
         "last_checked": prev.get("last_checked", ""),
+        "telegram_chat_id": prev.get("telegram_chat_id", ""),
     }
     return write_gist_file("portfolios.json", portfolios, clear_cache=clear_cache)
 
@@ -693,6 +694,35 @@ with tab2:
             st.caption(f"⚠️ 監控狀態：上次檢查 {_chk_date}（今日尚未開過 Web，daily_scan 雲端仍會跑）")
     elif _last_upd:
         st.caption(f"ℹ️ 監控狀態：持倉建立於 {_last_upd[:10]}（首次開 Web 後會記錄今日檢查時間）")
+
+    # ── Telegram 警報設定（每個 user 自己填 chat_id）──
+    with st.expander("🔔 Telegram 警報設定（觸發賣出規則時自動推播）", expanded=False):
+        _cur_chat = _user_meta.get("telegram_chat_id", "")
+        st.caption(
+            "daily_scan 每天 16:35 雲端跑，**任何持倉觸發 89.905 的 5 條賣出規則** "
+            "（停損 -20% / 保本 / 停利 +40% / 移動停利 -20% / 鎖利 / 到期 30 天），會立刻推 Telegram 給你。\n\n"
+            "**取得 chat_id**：在 Telegram 找 `@StockSignalBot`（或現有 bot）對話 `/start`，\n"
+            "然後到 `https://api.telegram.org/bot<BOT_TOKEN>/getUpdates` 找你的 chat.id（純數字）"
+        )
+        with st.form("telegram_form"):
+            new_chat = st.text_input("Telegram chat_id", value=_cur_chat, placeholder="例：1234567890")
+            if st.form_submit_button("儲存設定"):
+                if not new_chat or new_chat.strip().lstrip("-").isdigit():
+                    _portfolios = read_gist_file("portfolios.json")
+                    if not isinstance(_portfolios, dict):
+                        _portfolios = {}
+                    _udata = _portfolios.get(username, {}) if isinstance(_portfolios.get(username), dict) else {}
+                    _udata["holdings"] = _udata.get("holdings", user_holdings)
+                    _udata["telegram_chat_id"] = new_chat.strip()
+                    _udata["updated"] = tw_now().isoformat()
+                    _portfolios[username] = _udata
+                    if write_gist_file("portfolios.json", _portfolios):
+                        st.success("✅ 已儲存。下次 daily_scan 觸發賣出規則會推給你")
+                        st.rerun()
+                    else:
+                        st.error("儲存失敗")
+                else:
+                    st.error("chat_id 必須是純數字")
 
     # ── Current Holdings ──
     if user_holdings:

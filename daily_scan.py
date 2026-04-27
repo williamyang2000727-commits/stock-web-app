@@ -482,6 +482,94 @@ def main():
             # 避免 16:35-17:00 之間 Tab 3 看到 80 天版失真資料
             print(f"  Phase A/B 完成（{len(sim_holdings)} 檔持有中）— backtest_results.json 由 17:00 pipeline 重建，daily_scan 不寫")
 
+    # === Step 7b: 訂閱者真實持倉監控（每個用戶 portfolios.json holdings × 5 條 sell_rules）===
+    # 即使 William 沒開 Web、ken 沒開 Web，雲端 16:35 也跑一次，觸發任何賣出規則 → 寫 user_pending_sells
+    # 由 Telegram 健康報告（Windows pipeline Step 5 daily_health_report.py）讀 + 推給對應用戶
+    user_pending_sells = {}
+    portfolios = data_gist.get("portfolios.json", {})
+    if isinstance(portfolios, dict) and portfolios:
+        from sell_rules import should_sell
+        from trading_days import count_between
+        _fallback_cal_u = history.get("dates", [])
+        _portfolios_changed = False
+        sp_user = params  # 89.905 strategy params
+        for _uname, _udata in portfolios.items():
+            if not isinstance(_udata, dict):
+                continue
+            _holdings = _udata.get("holdings", []) or []
+            if not _holdings:
+                continue
+            _user_signals = []
+            for _h in _holdings:
+                _tk = _h.get("ticker", "")
+                _bp = _h.get("buy_price", 0)
+                _bd = _h.get("buy_date", "")
+                if not _tk or _bp <= 0 or not _bd:
+                    continue
+                if _tk not in market_data:
+                    # 停牌 / 無資料 — 推警告（不算 should_sell）
+                    _user_signals.append({
+                        "ticker": _tk, "name": _h.get("name", _tk),
+                        "buy_price": _bp, "current_price": 0,
+                        "return_pct": 0.0, "days_held": 0,
+                        "reason": "⚠️ 無成交資料（可能停牌）",
+                    })
+                    continue
+                _cur = market_data[_tk]["close"]
+                _dh = count_between(_bd, trading_date, fallback_calendar=_fallback_cal_u)
+                _pk_old = _h.get("peak_price", _bp)
+                _pk = max(_pk_old, _cur)
+                if round(_pk, 2) != round(_pk_old, 2):
+                    _h["peak_price"] = round(_pk, 2)
+                    _portfolios_changed = True
+                if _dh < 1:
+                    continue
+                # cache_closes for MA60 sell
+                _cache_c_u = list(cache[_tk]["c"]) if _tk in cache else None
+                if _cache_c_u is not None:
+                    _cache_c_u = _cache_c_u + [_cur]
+                # indicators only if strategy uses indicator-based sells (89.905 = no, 跳過)
+                _ind_u = None
+                if any(sp_user.get(k, 0) for k in ("use_rsi_sell", "use_macd_sell", "use_kd_sell", "sell_vol_shrink", "use_mom_exit")):
+                    if _tk in cache and _tk in states:
+                        try:
+                            _cs_u = cache[_tk]
+                            _c_u = np.array(_cs_u["c"], dtype=np.float64)
+                            _h_u = np.array(_cs_u["h"], dtype=np.float64)
+                            _l_u = np.array(_cs_u["l"], dtype=np.float64)
+                            _v_u = np.array(_cs_u["v"], dtype=np.float64)
+                            _o_u = np.array(_cs_u["o"], dtype=np.float64) if _cs_u.get("o") and len(_cs_u["o"]) == len(_cs_u["c"]) else None
+                            _h250_u = np.array(_cs_u["h250"], dtype=np.float64) if _cs_u.get("h250") else None
+                            _l250_u = np.array(_cs_u["l250"], dtype=np.float64) if _cs_u.get("l250") else None
+                            if len(_c_u) >= 20:
+                                _ind_u = compute_indicators_with_state(_c_u, _h_u, _l_u, _v_u, states[_tk], o=_o_u, h250=_h250_u, l250=_l250_u)
+                        except Exception:
+                            pass
+                _reason = should_sell(_bp, _cur, _pk, _dh, sp_user, cache_closes=_cache_c_u, indicators=_ind_u)
+                if _reason:
+                    _ret = (_cur / _bp - 1) * 100 if _bp > 0 else 0
+                    _user_signals.append({
+                        "ticker": _tk, "name": _h.get("name", _tk),
+                        "buy_price": _bp, "current_price": _cur,
+                        "return_pct": round(_ret, 2), "days_held": _dh,
+                        "peak_price": round(_pk, 2),
+                        "reason": _reason,
+                    })
+            if _user_signals:
+                user_pending_sells[_uname] = _user_signals
+                print(f"  USER PENDING [{_uname}]: {[s['name'] + '/' + s['reason'] for s in _user_signals]}")
+            # 不管有沒有 signal，都更新 last_checked
+            _udata["last_checked"] = datetime.now(TW_TZ).isoformat()
+            portfolios[_uname] = _udata
+            _portfolios_changed = True
+        if _portfolios_changed:
+            try:
+                write_gist(DATA_GIST, "portfolios.json", portfolios)
+                print(f"  portfolios.json updated (peak/last_checked for {len(portfolios)} users)")
+            except Exception as _e:
+                print(f"  portfolios.json patch failed (non-fatal): {_e}")
+    scan_results["user_pending_sells"] = user_pending_sells
+
     # Write scan_results AFTER step 7 (includes pending fields)
     write_gist(DATA_GIST, "scan_results.json", scan_results)
 
