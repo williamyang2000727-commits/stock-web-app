@@ -698,31 +698,43 @@ with tab2:
     # ── Telegram 警報設定（每個 user 自己填 chat_id）──
     with st.expander("🔔 Telegram 警報設定（觸發賣出規則時自動推播）", expanded=False):
         _cur_chat = _user_meta.get("telegram_chat_id", "")
-        st.caption(
-            "daily_scan 每天 16:35 雲端跑，**任何持倉觸發 89.905 的 5 條賣出規則** "
-            "（停損 -20% / 保本 / 停利 +40% / 移動停利 -20% / 鎖利 / 到期 30 天），會立刻推 Telegram 給你。\n\n"
-            "**取得 chat_id**：在 Telegram 找 `@StockSignalBot`（或現有 bot）對話 `/start`，\n"
-            "然後到 `https://api.telegram.org/bot<BOT_TOKEN>/getUpdates` 找你的 chat.id（純數字）"
+        st.markdown(
+            "daily_scan 每天 16:35 雲端跑，持倉觸發 89.905 的 5 條賣出規則"
+            "（停損 -20% / 保本 / 停利 +40% / 移動停利 -20% / 鎖利 / 到期 30 天）會立刻推 Telegram 給你。\n\n"
+            "### 📲 取得 chat_id（30 秒，2 步）\n"
+            "**Step 1**：打開 Telegram → 搜尋 [`@userinfobot`](https://t.me/userinfobot) → 按 `START` → "
+            "bot 直接回你一串數字（例如 `1234567890`），那就是你的 chat_id。\n\n"
+            "**Step 2**：去 [`@KingWilBot`](https://t.me/KingWilBot)（我們的警報 bot）→ 按 `START` 或傳「hi」\n"
+            "_（沒對 KingWilBot 按過 START，Telegram 規則不允許 bot 主動傳訊息給你）_\n\n"
+            "完成後，把 Step 1 拿到的數字貼進下方 → 儲存。"
         )
         with st.form("telegram_form"):
-            new_chat = st.text_input("Telegram chat_id", value=_cur_chat, placeholder="例：1234567890")
-            if st.form_submit_button("儲存設定"):
-                if not new_chat or new_chat.strip().lstrip("-").isdigit():
+            new_chat = st.text_input(
+                "你的 chat_id",
+                value=_cur_chat,
+                placeholder="例：1234567890（從 @userinfobot 取得）",
+            )
+            if st.form_submit_button("💾 儲存設定", use_container_width=True):
+                _v = new_chat.strip()
+                if not _v or _v.lstrip("-").isdigit():
                     _portfolios = read_gist_file("portfolios.json")
                     if not isinstance(_portfolios, dict):
                         _portfolios = {}
                     _udata = _portfolios.get(username, {}) if isinstance(_portfolios.get(username), dict) else {}
                     _udata["holdings"] = _udata.get("holdings", user_holdings)
-                    _udata["telegram_chat_id"] = new_chat.strip()
+                    _udata["telegram_chat_id"] = _v
                     _udata["updated"] = tw_now().isoformat()
                     _portfolios[username] = _udata
                     if write_gist_file("portfolios.json", _portfolios):
-                        st.success("✅ 已儲存。下次 daily_scan 觸發賣出規則會推給你")
+                        if _v:
+                            st.success(f"✅ 已儲存 chat_id={_v}。下次觸發賣出規則會推給你（記得也對 @KingWilBot 按過 START）")
+                        else:
+                            st.success("已清空 chat_id")
                         st.rerun()
                     else:
                         st.error("儲存失敗")
                 else:
-                    st.error("chat_id 必須是純數字")
+                    st.error("chat_id 必須是純數字（例：1234567890）")
 
     # ── Current Holdings ──
     if user_holdings:
