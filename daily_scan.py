@@ -442,9 +442,15 @@ def main():
                         pass
                 reason = should_sell(bp, cur, pk, dh, sp, cache_closes=cache_c, indicators=_ind)
                 if reason:
+                    _ret_p = round((cur / bp - 1) * 100, 2) if bp > 0 else 0.0
                     _new_pending_sells.append({
                         "ticker": tk, "name": h.get("name", ""),
-                        "reason": _clean_reason(reason)})
+                        "reason": _clean_reason(reason),
+                        "buy_date": h.get("buy_date", ""),
+                        "buy_price": round(bp, 2),
+                        "current_price": round(cur, 2),
+                        "return_pct": _ret_p,
+                        "days_held": dh})
 
             # 有空位就找買入候選（不管是賣出騰出的還是本來就空的）
             _slots_freeing = len(_new_pending_sells)
@@ -456,7 +462,8 @@ def main():
                     if sig["ticker"] not in _held_tks and sig["ticker"] not in _sold_tks:
                         _new_pending_buy = {
                             "ticker": sig["ticker"], "name": sig["name"],
-                            "score": sig.get("score", 0), "close": sig["close"]}
+                            "score": round(float(sig.get("score", 0)), 1),
+                            "close": round(float(sig["close"]), 2)}
                         break
 
             # Save pending in scan_results (for tomorrow)

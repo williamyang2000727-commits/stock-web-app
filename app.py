@@ -1110,16 +1110,42 @@ with tab3:
 
         if _pending_sells_data or _pending_buy_data:
             _has_swap = True
-            # 顯示 pending sells
+            # 顯示 pending sells（補從 _bt_holding 算缺的欄位）
             for _ps in _pending_sells_data:
+                _ps_tk = _ps.get("ticker", "")
+                _ps_ret = _ps.get("return_pct")
+                _ps_dh = _ps.get("days_held")
+                _ps_bd = _ps.get("buy_date", "")
+                # fallback from _bt_holding
+                if _ps_ret is None or _ps_dh is None or not _ps_bd:
+                    for _bh in _bt_holding:
+                        if _bh.get("ticker") == _ps_tk:
+                            if not _ps_bd:
+                                _ps_bd = _bh.get("buy_date", "")
+                            if _ps_dh is None:
+                                from trading_days import count_between
+                                _ps_dh = count_between(_ps_bd, str(tw_today()),
+                                                       fallback_calendar=[str(d) for d in (_full_trading_cal or trading_cal)] if (_full_trading_cal or trading_cal) else None)
+                            if _ps_ret is None:
+                                _bh_bp = _bh.get("buy_price", 0)
+                                _bh_cur = _bh.get("display_price") or _bh.get("sell_price", 0)
+                                if _bh_bp > 0 and _bh_cur:
+                                    _ps_ret = round((_bh_cur / _bh_bp - 1) * 100, 2)
+                            break
+                _bd_disp = f"（{_ps_bd} 買）" if _ps_bd else ""
+                _detail_parts = [f"原因：{_ps.get('reason','')}"]
+                if _ps_ret is not None:
+                    _detail_parts.append(f"報酬 {_ps_ret:+.1f}%")
+                if _ps_dh is not None:
+                    _detail_parts.append(f"持有 {_ps_dh} 交易日")
                 st.error(
-                    f"**📤 賣出** {_ps.get('name','')}（{_ps.get('ticker','')}）\n\n"
-                    f"原因：{_ps.get('reason','')}"
+                    f"**📤 賣出** {_ps.get('name','')}（{_ps.get('ticker','')}）{_bd_disp}\n\n"
+                    + "｜".join(_detail_parts)
                 )
             # 顯示 pending buy
             if _pending_buy_data:
                 _bp1 = _pending_buy_data.get('close', 0)
-                _bp_display = f"{_bp1}" if _bp1 > 0 else "（無價格）"
+                _bp_display = f"{_bp1:.2f}" if _bp1 and _bp1 > 0 else "（無價格）"
                 _exec_label = f"今天（{_nd_str}）" if _pending_is_for_today else f"{_nd_str}（{_wd[_nd.weekday()]}）"
                 st.success(
                     f"**🎯 買入** {_pending_buy_data.get('name', '')}（{_pending_buy_data.get('ticker', '')}）\n\n"
