@@ -19,8 +19,7 @@ jobs:
       - name: Check pipeline freshness
         env:
           GIST_TOKEN: ${{ secrets.GIST_TOKEN }}
-          # Telegram bot 是 hardcoded（同 stock_secrets.md，不是密級資料）
-          TELEGRAM_BOT_TOKEN: "8551169875:AAF48gHaISTcKgAAZ_CXCOFoG0ZT21aN0RI"
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: "5785839733"
         run: |
           python3 << 'EOF'

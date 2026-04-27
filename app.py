@@ -707,8 +707,8 @@ with tab2:
             "⚠️ **避雷**：Telegram 上有 spam bot 假冒 `@userinfobot`，回應「To use this bot you must join our channel」"
             "強迫你加頻道，那是釣魚 — 直接 BLOCK。請用上面的 `@getmyid_bot`。\n\n"
             "### 📲 啟用警報推播\n"
-            "再去 [`@KingWilBot`](https://t.me/KingWilBot)（我們的警報 bot）→ 按 `START` 或傳「hi」\n"
-            "_（沒對 KingWilBot 按過 START，Telegram 規則不允許 bot 主動傳訊息給你）_\n\n"
+            "再去 [`@Yyang_stock_alert_bot`](https://t.me/Yyang_stock_alert_bot)（我們的警報 bot）→ 按 `START`\n"
+            "_（沒對警報 bot 按過 START，Telegram 規則不允許 bot 主動傳訊息給你）_\n\n"
             "完成後，把第一步拿到的數字貼進下方 → 儲存。"
         )
         with st.form("telegram_form"):
@@ -730,7 +730,7 @@ with tab2:
                     _portfolios[username] = _udata
                     if write_gist_file("portfolios.json", _portfolios):
                         if _v:
-                            st.success(f"✅ 已儲存 chat_id={_v}。下次觸發賣出規則會推給你（記得也對 @KingWilBot 按過 START）")
+                            st.success(f"✅ 已儲存 chat_id={_v}。下次觸發賣出規則會推給你（記得也對 @Yyang_stock_alert_bot 按過 START）")
                         else:
                             st.success("已清空 chat_id")
                         st.rerun()
