@@ -183,8 +183,30 @@ def save_user_holdings(username, holdings, clear_cache=True):
     portfolios = read_gist_file("portfolios.json")
     if not isinstance(portfolios, dict):
         portfolios = {}
-    portfolios[username] = {"holdings": holdings, "updated": tw_now().isoformat()}
+    prev = portfolios.get(username, {}) if isinstance(portfolios.get(username), dict) else {}
+    portfolios[username] = {
+        "holdings": holdings,
+        "updated": tw_now().isoformat(),
+        "last_checked": prev.get("last_checked", ""),
+    }
     return write_gist_file("portfolios.json", portfolios, clear_cache=clear_cache)
+
+
+def touch_last_checked(username):
+    """每天每用戶最多 patch 一次 last_checked（證明 Web 有開過 + check_sell_signals 跑過）"""
+    portfolios = read_gist_file("portfolios.json")
+    if not isinstance(portfolios, dict) or username not in portfolios:
+        return False
+    user_data = portfolios[username]
+    if not isinstance(user_data, dict):
+        return False
+    today_str = tw_today().isoformat()
+    last = (user_data.get("last_checked") or "")[:10]
+    if last == today_str:
+        return False
+    user_data["last_checked"] = tw_now().isoformat()
+    portfolios[username] = user_data
+    return write_gist_file("portfolios.json", portfolios, clear_cache=False)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -474,6 +496,8 @@ if user_holdings and strategy_params and market_data:
         user_sell_signals = check_sell_signals(user_holdings, strategy_params, market_data, history_cache, _full_trading_cal or trading_cal)
         if json.dumps(user_holdings) != _holdings_before:
             save_user_holdings(username, user_holdings, clear_cache=False)
+        else:
+            touch_last_checked(username)
     except Exception:
         pass
 
@@ -655,6 +679,20 @@ with tab1:
 # ══════════════════════════════════════════════════════════════
 with tab2:
     st.markdown("### 💼 持倉管理")
+
+    # ── Last checked indicator (證明監控有跑) ──
+    _user_meta = portfolios.get(username, {}) if isinstance(portfolios, dict) else {}
+    _last_chk = _user_meta.get("last_checked", "")
+    _last_upd = _user_meta.get("updated", "")
+    if _last_chk:
+        _chk_date = _last_chk[:10]
+        _today_str = tw_today().isoformat()
+        if _chk_date == _today_str:
+            st.caption(f"✅ 監控狀態：今日 {_last_chk[11:16]} 已檢查（套用 89.905 賣出規則）")
+        else:
+            st.caption(f"⚠️ 監控狀態：上次檢查 {_chk_date}（今日尚未開過 Web，daily_scan 雲端仍會跑）")
+    elif _last_upd:
+        st.caption(f"ℹ️ 監控狀態：持倉建立於 {_last_upd[:10]}（首次開 Web 後會記錄今日檢查時間）")
 
     # ── Current Holdings ──
     if user_holdings:
