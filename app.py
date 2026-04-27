@@ -701,12 +701,15 @@ with tab2:
         st.markdown(
             "daily_scan 每天 16:35 雲端跑，持倉觸發 89.905 的 5 條賣出規則"
             "（停損 -20% / 保本 / 停利 +40% / 移動停利 -20% / 鎖利 / 到期 30 天）會立刻推 Telegram 給你。\n\n"
-            "### 📲 取得 chat_id（30 秒，2 步）\n"
-            "**Step 1**：打開 Telegram → 搜尋 [`@userinfobot`](https://t.me/userinfobot) → 按 `START` → "
-            "bot 直接回你一串數字（例如 `1234567890`），那就是你的 chat_id。\n\n"
-            "**Step 2**：去 [`@KingWilBot`](https://t.me/KingWilBot)（我們的警報 bot）→ 按 `START` 或傳「hi」\n"
+            "### 📲 取得 chat_id\n"
+            "打開 Telegram → 搜尋 [`@getmyid_bot`](https://t.me/getmyid_bot) → 按 `START` → "
+            "bot 立刻回你一串數字（例如 `1234567890`），那就是你的 chat_id。\n\n"
+            "⚠️ **避雷**：Telegram 上有 spam bot 假冒 `@userinfobot`，回應「To use this bot you must join our channel」"
+            "強迫你加頻道，那是釣魚 — 直接 BLOCK。請用上面的 `@getmyid_bot`。\n\n"
+            "### 📲 啟用警報推播\n"
+            "再去 [`@KingWilBot`](https://t.me/KingWilBot)（我們的警報 bot）→ 按 `START` 或傳「hi」\n"
             "_（沒對 KingWilBot 按過 START，Telegram 規則不允許 bot 主動傳訊息給你）_\n\n"
-            "完成後，把 Step 1 拿到的數字貼進下方 → 儲存。"
+            "完成後，把第一步拿到的數字貼進下方 → 儲存。"
         )
         with st.form("telegram_form"):
             new_chat = st.text_input(
