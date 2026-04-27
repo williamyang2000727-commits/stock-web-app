@@ -440,12 +440,34 @@ def _get_twse_ex_dividend_tickers(date_str):
     Reads from Data Gist's ex_dividend.json, which daily_scan (GitHub Actions)
     refreshes every trading day 16:35 TW time. We read via Gist because
     Streamlit Cloud (US egress) cannot reliably reach TWSE directly.
-    Returns set of ticker codes, or None if the date isn't cached."""
+
+    Return semantics:
+    - set(tickers)  → key exists, that day has ex-dividend stocks
+    - set()         → key absent BUT cache was refreshed AFTER date_str's
+                      16:35 cron, meaning daily_scan saw the schedule and
+                      that day had no ex-dividend events
+    - None          → cache hasn't been refreshed since date_str's 16:35
+                      yet (e.g. cron failed, or looking at a future date),
+                      so we genuinely don't know
+    """
     try:
         ex_data = read_gist_file("ex_dividend.json") or {}
         tickers_by_date = ex_data.get("tickers_by_date", {})
         if date_str in tickers_by_date:
             return set(tickers_by_date[date_str])
+        # Key absent: check if cache was refreshed after date_str's 16:35 cron.
+        # If yes → daily_scan ran and confirmed no ex-dividend → empty set.
+        # If no → genuinely unknown → None.
+        updated = ex_data.get("updated", "")
+        if updated:
+            try:
+                upd_dt = datetime.fromisoformat(updated)
+                # Compare against date_str at 16:35 TW (when cron writes)
+                cutoff = datetime.fromisoformat(f"{date_str}T16:35:00+08:00")
+                if upd_dt >= cutoff:
+                    return set()  # confirmed no ex-dividend that day
+            except Exception:
+                pass
     except Exception:
         pass
     return None
