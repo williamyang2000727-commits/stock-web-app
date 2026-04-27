@@ -715,7 +715,7 @@ with tab2:
             new_chat = st.text_input(
                 "你的 chat_id",
                 value=_cur_chat,
-                placeholder="例：1234567890（從 @userinfobot 取得）",
+                placeholder="例：1234567890（從 @getmyid_bot 取得）",
             )
             if st.form_submit_button("💾 儲存設定", use_container_width=True):
                 _v = new_chat.strip()
