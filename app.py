@@ -1016,13 +1016,29 @@ with tab3:
         except:
             _stale = False
 
+        # FIX: daily_scan 還沒跑時，不要用 today 即時 market_data 算 cur
+        # 原因：market_data 取得 today 收盤後，但 daily_scan 還沒寫 scan_results
+        # → 換股狀態會搶先用「今日收盤」算 should_sell → 顯示 D+1 賣（偷跑）
+        # 對齊 backtest_results bt_end：用 cache 末日 close 算 cur（= bt 末日狀態）
+        # daily_scan 跑完後（scan_date == today），才用 market_data
+        _use_live_cur = not _scan_not_yet_today  # daily_scan 已跑完才用 live
         for _bh in _bt_holding:
             _tk = _bh.get("ticker", "")
             _bp = _bh.get("buy_price", 0)
             _nm = _bh.get("name", _tk)
-            if _tk not in market_data or _bp <= 0:
+            if _bp <= 0:
                 continue
-            _cur = market_data[_tk]["close"]
+            _cur = None
+            if _use_live_cur and _tk in market_data:
+                _cur = market_data[_tk]["close"]
+            else:
+                # daily_scan 還沒跑 → 用 cache 末日 close（= bt 末日，跟 Tab 3 交易明細一致）
+                _cs_fallback = _swap_cache.get(_tk, {})
+                _c_arr = _cs_fallback.get("c", [])
+                if _c_arr:
+                    _cur = _c_arr[-1]
+                elif _tk in market_data:
+                    _cur = market_data[_tk]["close"]
             if not _cur or _cur <= 0:  # Bug fix: bad market data shouldn't yield 0% return silently
                 continue
             _ret = (_cur / _bp - 1) * 100
@@ -1038,7 +1054,8 @@ with tab3:
                 # Delegate to shared sell_rules (matches kernel 1:1, same as scanner/daily_scan)
                 from sell_rules import should_sell
                 _cs_c = list(_swap_cache.get(_tk,{}).get("c",[])) if _tk in _swap_cache else None
-                if _cs_c is not None and market_data and _tk in market_data:
+                # daily_scan 已跑完才把 today close append（防偷跑）
+                if _cs_c is not None and _use_live_cur and market_data and _tk in market_data:
                     _cs_c = _cs_c + [market_data[_tk]["close"]]  # FIX M3: append today's close for MA60
                 # Compute indicators if strategy uses indicator-based sell conditions
                 _ind_t3 = None
@@ -1047,12 +1064,14 @@ with tab3:
                         import numpy as _np_t3
                         from scanner import compute_indicators as _ci_t3
                         _cs_t3 = _swap_cache[_tk]
-                        _c_t3 = _np_t3.array(list(_cs_t3["c"]) + ([market_data[_tk]["close"]] if _tk in market_data else []), dtype=_np_t3.float64)
-                        _h_t3 = _np_t3.array(list(_cs_t3["h"]) + ([market_data[_tk]["high"]] if _tk in market_data else []), dtype=_np_t3.float64)
-                        _l_t3 = _np_t3.array(list(_cs_t3["l"]) + ([market_data[_tk]["low"]] if _tk in market_data else []), dtype=_np_t3.float64)
-                        _v_t3 = _np_t3.array(list(_cs_t3["v"]) + ([market_data[_tk]["vol"]] if _tk in market_data else []), dtype=_np_t3.float64)
-                        _h250_t3 = _np_t3.array(list(_cs_t3.get("h250", [])) + ([market_data[_tk]["high"]] if _tk in market_data else []), dtype=_np_t3.float64) if _cs_t3.get("h250") else None
-                        _l250_t3 = _np_t3.array(list(_cs_t3.get("l250", [])) + ([market_data[_tk]["low"]] if _tk in market_data else []), dtype=_np_t3.float64) if _cs_t3.get("l250") else None
+                        # 防偷跑：scan 沒跑完不 append today
+                        _append_today = _use_live_cur and (_tk in market_data)
+                        _c_t3 = _np_t3.array(list(_cs_t3["c"]) + ([market_data[_tk]["close"]] if _append_today else []), dtype=_np_t3.float64)
+                        _h_t3 = _np_t3.array(list(_cs_t3["h"]) + ([market_data[_tk]["high"]] if _append_today else []), dtype=_np_t3.float64)
+                        _l_t3 = _np_t3.array(list(_cs_t3["l"]) + ([market_data[_tk]["low"]] if _append_today else []), dtype=_np_t3.float64)
+                        _v_t3 = _np_t3.array(list(_cs_t3["v"]) + ([market_data[_tk]["vol"]] if _append_today else []), dtype=_np_t3.float64)
+                        _h250_t3 = _np_t3.array(list(_cs_t3.get("h250", [])) + ([market_data[_tk]["high"]] if _append_today else []), dtype=_np_t3.float64) if _cs_t3.get("h250") else None
+                        _l250_t3 = _np_t3.array(list(_cs_t3.get("l250", [])) + ([market_data[_tk]["low"]] if _append_today else []), dtype=_np_t3.float64) if _cs_t3.get("l250") else None
                         if len(_c_t3) >= 20:
                             _ind_t3 = _ci_t3(_c_t3, _h_t3, _l_t3, _v_t3, h250=_h250_t3, l250=_l250_t3)
                     except Exception:
