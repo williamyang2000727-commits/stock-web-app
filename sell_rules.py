@@ -111,6 +111,6 @@ def should_sell(bp, cur, peak, days_held, params, cache_closes=None, indicators=
 
     # 13. Max hold days
     if days_held >= int(params.get("hold_days", 30)):
-        return f"到期 {ret:+.1f}%"
+        return "到期"  # 不帶數字，因 app.py 顯示時會加「持有 N 交易日」
 
     return None
