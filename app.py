@@ -1206,7 +1206,7 @@ with tab3:
                 _bd_display = f"（{_s.get('buy_date','')} 買）" if _s.get("buy_date") else ""
                 st.error(
                     f"**📤 賣出** {_s['name']}（{_s['ticker']}）{_bd_display}\n\n"
-                    f"原因：{_s['reason']}｜報酬 {_s['ret']:+.1f}%｜持有 {_s['dh']} 交易日"
+                    f"原因：{_s['reason']}｜報酬 {_s['ret']:+.1f}%（已扣 0.585% 摩擦成本）｜持有 {_s['dh']} 交易日"
                 )
         else:
             _held_count = len(_bt_holding)
@@ -1446,7 +1446,8 @@ with tab3:
         st.caption(
             "💡 **歷史交易價（買入/賣出）為 yfinance 除權息調整後價**，"
             "不等於當時券商實際成交價（例：保瑞 2022-11-18 實際交易 ~308，配息/配股調整後顯示 264）。"
-            "**報酬率 % 已含除權息**，是你實際會拿到的。"
+            "**報酬率 % 已含除權息 + 已扣台股摩擦成本 0.585%**"
+            "（買賣手續費 0.285% + 證交稅 0.3%），是你實際會拿到的。"
             "「持有中」現價已切換為 **TWSE/TPEx 官方未調整價**（與看盤軟體一致）。"
         )
         st.markdown("---")
@@ -1569,7 +1570,7 @@ with tab3:
                     "賣出日": "—" if _holding else (t.get("sell_date", "") or "—"),
                     "買入價": t.get("buy_price", 0),
                     "賣出/現價": show_price,
-                    "報酬%": f"{ret:+.1f}%",
+                    "報酬%（淨）": f"{ret:+.1f}%",
                     "天數": t.get("hold_days", 0),
                     "狀態": "持有中" if _holding else t.get("reason", ""),
                 })
