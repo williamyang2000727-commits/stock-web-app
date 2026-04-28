@@ -17,10 +17,18 @@ def tw_now():
 def tw_today():
     return tw_now().date()
 
+# ── Strategy Tag (main = 89.905, short = 短波段第二策略) ────
+# 必須在 set_page_config 之前讀，才能動態決定 page_title
+STRATEGY_TAG = st.secrets.get("strategy_tag", "main")
+_IS_SHORT = STRATEGY_TAG == "short"
+_SITE_TITLE = "Yang's 短波段第二策略" if _IS_SHORT else "Yang's 選股系統"
+_SITE_ICON = "⏱️" if _IS_SHORT else "📈"
+
 # ── Page Config ──────────────────────────────────────────────
 st.set_page_config(
-    page_title="Yang's 選股系統",
-    page_icon="📈",    layout="wide",
+    page_title=_SITE_TITLE,
+    page_icon=_SITE_ICON,
+    layout="wide",
     initial_sidebar_state="expanded",
 )
 
@@ -29,7 +37,7 @@ GITHUB_TOKEN = st.secrets["github_token"]
 DATA_GIST_ID = st.secrets["data_gist_id"]
 HISTORY_GIST_ID = st.secrets.get("history_gist_id", DATA_GIST_ID)
 STATE_GIST_ID = st.secrets.get("state_gist_id", DATA_GIST_ID)
-GPU_GIST_ID = "c1bef892d33589baef2142ce250d18c2"  # GPU evolution pushes here
+GPU_GIST_ID = st.secrets.get("gpu_gist_id", "c1bef892d33589baef2142ce250d18c2")  # GPU evolution pushes here
 
 
 # ── Gist I/O ────────────────────────────────────────────────
@@ -84,8 +92,8 @@ def authenticate():
         return True
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
-        st.markdown("# 📈 Yang's 選股系統")
-        st.caption("Taiwan Stock Selection System")
+        st.markdown(f"# {_SITE_ICON} {_SITE_TITLE}")
+        st.caption("Taiwan Stock Selection System" + (" — 短波段（hold 10 天）" if _IS_SHORT else ""))
         st.markdown("---")
         with st.form("login"):
             username = st.text_input("帳號").strip().lower()
@@ -231,7 +239,7 @@ with st.sidebar:
             del st.session_state[key]
         st.rerun()
     st.markdown("---")
-    st.caption("📈 Yang's 選股系統 v1.0")
+    st.caption(f"{_SITE_ICON} {_SITE_TITLE} v1.0")
 
 # ── Load Strategy (auto-sync from GPU Gist) ──
 @st.cache_data(ttl=300)
@@ -711,7 +719,7 @@ with tab2:
         _chk_date = _last_chk[:10]
         _today_str = tw_today().isoformat()
         if _chk_date == _today_str:
-            st.caption(f"✅ 監控狀態：今日 {_last_chk[11:16]} 已檢查（套用 89.905 賣出規則）")
+            st.caption(f"✅ 監控狀態：今日 {_last_chk[11:16]} 已檢查（套用{'短波段' if _IS_SHORT else ' 89.905 '}賣出規則）")
         else:
             st.caption(f"⚠️ 監控狀態：上次檢查 {_chk_date}（今日尚未開過 Web，daily_scan 雲端仍會跑）")
     elif _last_upd:
@@ -720,9 +728,16 @@ with tab2:
     # ── Telegram 警報設定（每個 user 自己填 chat_id）──
     with st.expander("🔔 Telegram 警報設定（觸發賣出規則時自動推播）", expanded=False):
         _cur_chat = _user_meta.get("telegram_chat_id", "")
+        _scan_time = "17:00" if _IS_SHORT else "16:35"
+        _strat_name = "短波段第二策略" if _IS_SHORT else "89.905"
+        _sell_rules_desc = (
+            "停損 -12% / 停利 +80%（半關閉）/ 移動停利 -20% / 鎖利 +15% 跌到 +3% / 到期 10 天"
+            if _IS_SHORT
+            else "停損 -20% / 保本 / 停利 +40% / 移動停利 -20% / 鎖利 / 到期 30 天"
+        )
         st.markdown(
-            "daily_scan 每天 16:35 雲端跑，持倉觸發 89.905 的 5 條賣出規則"
-            "（停損 -20% / 保本 / 停利 +40% / 移動停利 -20% / 鎖利 / 到期 30 天）會立刻推 Telegram 給你。\n\n"
+            f"daily_scan 每天 {_scan_time} 雲端跑，持倉觸發 {_strat_name} 的賣出規則"
+            f"（{_sell_rules_desc}）會立刻推 Telegram 給你。\n\n"
             "### 📲 取得 chat_id\n"
             "打開 Telegram → 搜尋 [`@getmyid_bot`](https://t.me/getmyid_bot) → 按 `START` → "
             "bot 立刻回你一串數字（例如 `1234567890`），那就是你的 chat_id。\n\n"
