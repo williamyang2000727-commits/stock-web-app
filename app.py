@@ -649,7 +649,7 @@ with tab0:
         # BUY after sell (only #1, GPU rule: 1 per day)
         for sig in user_buy_signals:
             _sp_close = sig.get('close', 0)
-            _sp_display = f"{_sp_close} 元" if _sp_close > 0 else "（無價格）"
+            _sp_display = f"{_sp_close:.2f} 元" if _sp_close > 0 else "（無價格）"
             st.success(
                 f"### 🎯 買入\n\n"
                 f"**{sig.get('name', '')}（{sig.get('ticker', '')}）**\n\n"
@@ -1017,7 +1017,7 @@ with tab3:
             _b0 = _buy_candidates_empty[0]
             st.success(
                 f"**🎯 D+1 買入**（持倉 0 檔，直接開新倉）{_b0.get('name', '')}（{_b0.get('ticker', '')}）\n\n"
-                f"評分 {int(_b0.get('score', 0))} 分｜收盤價 {_b0.get('close', 0)}｜"
+                f"評分 {int(_b0.get('score', 0))} 分｜收盤價 {_b0.get('close', 0):.2f}｜"
                 f"**{_next_td.strftime('%m/%d')}（{_wdn[_next_td.weekday()]}）13:25 前買入**"
             )
         else:
