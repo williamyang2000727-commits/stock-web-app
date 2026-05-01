@@ -6,7 +6,7 @@ Streamlit Cloud 限制：(repo, branch, main_file_path) 必須唯一才能建獨
 
 新 Streamlit App 部署時設 main file path = app_short.py 即可。
 
-(Last bump: 2026-05-01 force rebuild)
+(Last bump: 2026-05-01T13:43 force rebuild — _today_is_holiday scoping fix)
 """
 import os
 import sys

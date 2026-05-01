@@ -1148,6 +1148,16 @@ with tab3:
             if _next_trading_after_today else "下個交易日"
         )
 
+        # Debug helper — 顯示判斷依據（暫時）
+        try:
+            _dbg_cal_max = max(_cal_list) if _cal_list else None
+            _dbg_today_in = _today_real in _cal_list if _cal_list else False
+            st.caption(f"🔧 debug: today={_today_real}, cal_list_size={len(_cal_list)}, "
+                       f"cal_max={_dbg_cal_max}, today_in_cal={_dbg_today_in}, "
+                       f"is_holiday={_today_is_holiday}, scan_not_yet={_scan_not_yet_today}, is_trading={_is_trading_today}")
+        except Exception as _e:
+            st.caption(f"🔧 debug error: {_e}")
+
         if _stale:
             st.warning(f"⚠️ 訊號日 {_d_display} 晚於預期執行日 — daily_scan 可能中斷。建議按「重新整理」或等下次自動掃描。")
         elif _today_is_holiday:
