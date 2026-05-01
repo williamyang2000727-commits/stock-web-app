@@ -1132,8 +1132,26 @@ with tab3:
         # Bug fix: 無論有沒有賣出都顯示訊號日，避免「有持倉但靜默」
         _nd_str = _nd.strftime("%m/%d")
         _d_display = _d_date if _d_date else "（未掃描）"
+        # 判斷今天是否為休市日（在 trading_cal 範圍內但不是交易日）
+        _today_is_holiday = False
+        try:
+            _today_is_holiday = bool(_cal_list) and (_today_real not in _cal_list)
+        except Exception:
+            _today_is_holiday = False
+        # 下個交易日（給休市訊息用）
+        try:
+            _next_trading_after_today = next((d for d in _cal_list if d > _today_real), None) if _cal_list else None
+        except Exception:
+            _next_trading_after_today = None
+        _next_label_full = (
+            f"{_next_trading_after_today.strftime('%m/%d')}（{_wd[_next_trading_after_today.weekday()]}）"
+            if _next_trading_after_today else "下個交易日"
+        )
+
         if _stale:
             st.warning(f"⚠️ 訊號日 {_d_display} 晚於預期執行日 — daily_scan 可能中斷。建議按「重新整理」或等下次自動掃描。")
+        elif _today_is_holiday:
+            st.info(f"🏖️ 今日（{_today_real.strftime('%m/%d')}）台股休市，daily_scan 不會跑。目前顯示的是 **{_d_display}** 的掃描結果，{_next_label_full} 16:35 會跑下次掃描。")
         elif _scan_not_yet_today:
             st.info(f"⏳ 今日 daily_scan 尚未完成（預定 16:35）。目前顯示的是 **{_d_display}** 的掃描結果，完成後請按「重新整理」查看最新訊號。")
 
@@ -1222,18 +1240,34 @@ with tab3:
         else:
             _held_count = len(_bt_holding)
             _max_p = int(_sp.get("max_positions", 2))
+            # 算「下次 daily_scan 會在哪天」 = 今天若是交易日就是明天，今天若休市就是下個交易日
+            try:
+                _next_scan_day = next((d for d in _cal_list if d > _today_real), None) if _cal_list else None
+            except Exception:
+                _next_scan_day = None
+            _next_scan_label = (
+                f"{_next_scan_day.strftime('%m/%d')}（{_wd[_next_scan_day.weekday()]}）"
+                if _next_scan_day else "下個交易日"
+            )
             if _held_count < _max_p:
                 _empty = _max_p - _held_count
                 st.warning(f"📭 {_held_count}/{_max_p} 檔持有中，{_empty} 個空位。"
                            f"今日掃描**無達標候選**（score < {int(_sp.get('buy_threshold', 8))}），"
-                           f"明日 16:35 再掃描。")
+                           f"{_next_scan_label} 16:35 再掃描。")
             else:
                 # 列出持倉名稱，明確告訴用戶「繼續持有不要動」
                 _hold_names = "、".join(f"{h.get('name', '')}（{h.get('ticker','')}）" for h in _bt_holding)
+                # 如果今天休市，標題改成「今日休市」而非「明日無動作」
+                if _today_is_holiday:
+                    _no_action_title = f"🏖️ 今日（{_today_real.strftime('%m/%d')}）台股休市 — 繼續持有 {_held_count} 檔"
+                    _no_action_msg = f"今日無 daily_scan，{_next_scan_label} 16:35 才會跑下次掃描。"
+                else:
+                    _no_action_title = f"✋ **{_nd_str}（{_wd[_nd.weekday()]}）無動作 — 繼續持有 {_held_count} 檔**"
+                    _no_action_msg = f"今日掃描無賣出訊號、滿倉無新買入。{_next_scan_label} 16:35 再掃描。"
                 st.info(
-                    f"✋ **{_nd_str}（{_wd[_nd.weekday()]}）無動作 — 繼續持有 {_held_count} 檔**\n\n"
+                    f"{_no_action_title}\n\n"
                     f"持倉：{_hold_names}\n\n"
-                    f"今日掃描無賣出訊號、滿倉無新買入。明日 16:35 再掃描。"
+                    f"{_no_action_msg}"
                 )
         st.markdown("---")
 
