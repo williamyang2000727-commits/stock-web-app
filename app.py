@@ -555,10 +555,15 @@ _bt_for_freshness = read_gist_file("backtest_results.json")
 _pipeline_updated = (_bt_for_freshness or {}).get("stats", {}).get("pipeline_updated", "")
 _pipeline_today = _now_tw_pipe.strftime("%Y-%m-%d")
 _pipeline_ran_today = _pipeline_updated.startswith(_pipeline_today)
-_is_weekday_pipe = _now_tw_pipe.weekday() < 5
+# 用交易日曆判斷今天是否為交易日（含國定假日），fallback 才用週一~週五
+_today_pipe = _now_tw_pipe.date()
+if trading_cal:
+    _is_trading_day_pipe = _today_pipe in trading_cal
+else:
+    _is_trading_day_pipe = _now_tw_pipe.weekday() < 5
 _after_settle = _now_tw_pipe.hour >= 17 or (_now_tw_pipe.hour == 16 and _now_tw_pipe.minute >= 30)
 
-if _is_weekday_pipe and _after_settle and not _pipeline_ran_today:
+if _is_trading_day_pipe and _after_settle and not _pipeline_ran_today:
     if not _pipeline_updated:
         st.warning(
             f"⚠️ **這是舊資料（daily_scan 80 天版本，可能跟 cpu_replay 真公式偏差）**\n\n"
@@ -1046,9 +1051,15 @@ with tab3:
             _cal_list = sorted(_full_trading_cal or trading_cal or [])
             _days_since_scan = sum(1 for d in _cal_list if _scan_d < d <= _today_real) if _cal_list else 0
             _stale = _days_since_scan >= 2
-            # scan 不是今天的 + 今天是工作日 → daily_scan 還沒跑
-            # 不依賴交易日曆快取（可能不含今天），直接看週一~週五
-            if _scan_d < _today_real and _today_real.weekday() < 5:
+            # scan 不是今天的 + 今天是交易日 → daily_scan 還沒跑
+            # 用交易日曆判斷（含國定假日），fallback 才用 weekday()
+            _is_trading_today = False
+            if _cal_list:
+                _is_trading_today = _today_real in _cal_list
+            else:
+                # 日曆 fetch 失敗時退回到週一~週五（會誤判國定假日，但比沒有好）
+                _is_trading_today = _today_real.weekday() < 5
+            if _scan_d < _today_real and _is_trading_today:
                 _scan_not_yet_today = True
         except:
             _stale = False
