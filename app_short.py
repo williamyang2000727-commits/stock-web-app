@@ -5,6 +5,8 @@ Streamlit Cloud 限制：(repo, branch, main_file_path) 必須唯一才能建獨
 共用 app.py 完整邏輯，靠 secrets 的 strategy_tag = "short" 切換顯示。
 
 新 Streamlit App 部署時設 main file path = app_short.py 即可。
+
+(Last bump: 2026-05-01 force rebuild)
 """
 import os
 import sys
