@@ -681,7 +681,12 @@ def run_scan(params, held_tickers=None, history_cache=None, indicator_states=Non
 
 
 def fetch_trading_calendar(months=3):
-    """Fetch exact trading dates from TWSE (using 2330 as reference)."""
+    """Fetch exact trading dates from TWSE (using 2330 as reference).
+
+    SAFETY: Filter out any date > today (TWSE shouldn't return future dates,
+    but defensive filter prevents bad cache from making today's holiday
+    appear as a trading day).
+    """
     from datetime import date as _d
     import time as _time
     dates = set()
@@ -700,7 +705,11 @@ def fetch_trading_calendar(months=3):
             )
             for row in r.json().get("data", []):
                 parts = row[0].split("/")
-                dates.add(_d(int(parts[0]) + 1911, int(parts[1]), int(parts[2])))
+                d = _d(int(parts[0]) + 1911, int(parts[1]), int(parts[2]))
+                # Defensive: skip future dates (shouldn't happen but guard
+                # against TWSE oddities or stale cache contamination)
+                if d <= today:
+                    dates.add(d)
             if months > 6:
                 _time.sleep(0.2)  # Rate limit for large fetches
         except Exception:

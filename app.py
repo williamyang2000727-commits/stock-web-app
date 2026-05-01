@@ -432,12 +432,12 @@ if not scan or not scan.get("buy_signals"):
 scan_date = scan.get("date", "") if scan else ""
 
 # ── Trading Calendar ──
-@st.cache_data(ttl=86400, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)  # 1 hour (was 24h)
 def _get_trading_cal():
     from scanner import fetch_trading_calendar
     return fetch_trading_calendar()
 
-@st.cache_data(ttl=604800, show_spinner=False)
+@st.cache_data(ttl=3600, show_spinner=False)  # 1 hour (was 7 days — too long, holiday days got stale)
 def _get_full_trading_cal():
     from scanner import fetch_trading_calendar
     return fetch_trading_calendar(months=48)
@@ -1132,10 +1132,17 @@ with tab3:
         # Bug fix: 無論有沒有賣出都顯示訊號日，避免「有持倉但靜默」
         _nd_str = _nd.strftime("%m/%d")
         _d_display = _d_date if _d_date else "（未掃描）"
-        # 判斷今天是否為休市日（在 trading_cal 範圍內但不是交易日）
+        # 判斷今天是否為休市日。兩個條件任一滿足就算休市：
+        # (A) cal_list 不空 AND 今天不在 cal → 國定假日（cal 正確時）
+        # (B) pipeline 今天有跑 AND scan_results.date < 今天 → 今天 pipeline 偵測到沒新交易日（最可靠）
         _today_is_holiday = False
         try:
-            _today_is_holiday = bool(_cal_list) and (_today_real not in _cal_list)
+            # (A) 日曆判斷
+            _by_cal = bool(_cal_list) and (_today_real not in _cal_list)
+            # (B) pipeline 證據：pipeline 跑完但寫的還是舊日期
+            _scan_d_check = date.fromisoformat(_d_date) if _d_date else None
+            _by_pipeline = bool(_pipeline_ran_today) and bool(_scan_d_check) and (_scan_d_check < _today_real)
+            _today_is_holiday = _by_cal or _by_pipeline
         except Exception:
             _today_is_holiday = False
         # 下個交易日（給休市訊息用）
@@ -1148,13 +1155,15 @@ with tab3:
             if _next_trading_after_today else "下個交易日"
         )
 
-        # Debug helper — 顯示判斷依據（暫時）
+        # Debug helper — 顯示判斷依據（暫時，等確認 OK 後拿掉）
         try:
             _dbg_cal_max = max(_cal_list) if _cal_list else None
             _dbg_today_in = _today_real in _cal_list if _cal_list else False
-            st.caption(f"🔧 debug: today={_today_real}, cal_list_size={len(_cal_list)}, "
-                       f"cal_max={_dbg_cal_max}, today_in_cal={_dbg_today_in}, "
-                       f"is_holiday={_today_is_holiday}, scan_not_yet={_scan_not_yet_today}, is_trading={_is_trading_today}")
+            st.caption(f"🔧 debug: today={_today_real}, scan_d={_d_date}, cal_max={_dbg_cal_max}, "
+                       f"today_in_cal={_dbg_today_in}, pipeline_today={_pipeline_ran_today}, "
+                       f"by_cal={_by_cal if '_by_cal' in dir() else 'N/A'}, "
+                       f"by_pipe={_by_pipeline if '_by_pipeline' in dir() else 'N/A'}, "
+                       f"is_holiday={_today_is_holiday}")
         except Exception as _e:
             st.caption(f"🔧 debug error: {_e}")
 
