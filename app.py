@@ -1043,22 +1043,22 @@ with tab3:
 
         # FIX #2: stale = 超過 1 個交易日沒更新（正常 D+1 morning 不該觸發）
         _scan_not_yet_today = False
+        # 提前定義（讓後面區塊也能用）
+        _today_real = tw_today()
+        _cal_list = sorted(_full_trading_cal or trading_cal or [])
+        _is_trading_today = False
+        if _cal_list:
+            _is_trading_today = _today_real in _cal_list
+        else:
+            # 日曆 fetch 失敗時退回到週一~週五
+            _is_trading_today = _today_real.weekday() < 5
         try:
             # 用真實日曆日期（tw_today），不用市場資料日期（trading_date）
             # 因為 trading_date 可能跟 scan_date 相同（都是今天），但 scan 其實是昨天跑的
-            _today_real = tw_today()
             _scan_d = date.fromisoformat(_d_date) if _d_date else _today_real
-            _cal_list = sorted(_full_trading_cal or trading_cal or [])
             _days_since_scan = sum(1 for d in _cal_list if _scan_d < d <= _today_real) if _cal_list else 0
             _stale = _days_since_scan >= 2
             # scan 不是今天的 + 今天是交易日 → daily_scan 還沒跑
-            # 用交易日曆判斷（含國定假日），fallback 才用 weekday()
-            _is_trading_today = False
-            if _cal_list:
-                _is_trading_today = _today_real in _cal_list
-            else:
-                # 日曆 fetch 失敗時退回到週一~週五（會誤判國定假日，但比沒有好）
-                _is_trading_today = _today_real.weekday() < 5
             if _scan_d < _today_real and _is_trading_today:
                 _scan_not_yet_today = True
         except:
