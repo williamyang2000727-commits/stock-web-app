@@ -1671,16 +1671,24 @@ with tab4:
         # ═══════════════════════════════════════════
         # 🎯 推薦今天可進場 — 只列黃金組合（最強，勝率 85.7%）
         # ═══════════════════════════════════════════
-        # 載入最佳 hold（1500 天回測結果）
+        # 載入最佳 hold（全期回測，勝率最高優先）
         golden_hold_data = read_gist_file("golden_optimal_hold.json") or {}
-        best_hold = golden_hold_data.get("best_hold_by_expected_net", 10)  # 預設 10 天
+        best_hold = golden_hold_data.get("best_hold_by_wr", 10)  # 勝率最高（用戶 5/12 要求）
+
+        # 找出該 hold 的勝率
+        _best_perf = None
+        for hp in golden_hold_data.get("hold_perf", []):
+            if hp["hold_days"] == best_hold:
+                _best_perf = hp
+                break
+        _best_wr = _best_perf["wr"] if _best_perf else "?"
 
         st.markdown("### 🎯 推薦今天可進場（只列黃金組合 — 最強訊號）")
         st.caption(
             f"💎 **依 5/12 過濾後實測**："
             f"🌟 黃金組合（MACD + 量爆 5 日內疊加）勝率 **85.7%** / "
             f"期望值 +14.28% / 盈虧比 4.08 — **業界頂級**。"
-            f"｜ ⭐ **{golden_hold_data.get('backtest_days', '?')} 天全期回測最佳 hold = {best_hold} 天**"
+            f"｜ ⭐ **{golden_hold_data.get('backtest_days', '?')} 天全期回測最高勝率 hold = {best_hold} 天 ({_best_wr}%)**"
             f"（{golden_hold_data.get('total_triggers', '?')} 個觸發點驗證）"
         )
 
@@ -1714,17 +1722,18 @@ with tab4:
         st.success(
             f"📌 **黃金組合 {n_golden_recent} 檔**（今天剛觸發 {n_golden_today} 檔）｜"
             f"**下單時機**：明日 09:00 開盤前 ｜ "
-            f"**最佳 hold**：{best_hold} 天（1500 天回測）｜ "
-            f"**單筆預期**：+14% ｜ **勝率**：85.7%"
+            f"**最高勝率 hold**：{best_hold} 天（勝率 {_best_wr}%）"
         )
 
         # 全期回測 hold 績效表（可展開）
         if golden_hold_data.get("hold_perf"):
             _bd = golden_hold_data.get('backtest_days', '?')
             _maxh = golden_hold_data.get('max_hold_tested', 30)
-            with st.expander(f"📊 {_bd} 天回測：hold 1-{_maxh} 天完整績效（最佳 = {best_hold} 天）"):
+            with st.expander(f"📊 {_bd} 天回測：hold 1-{_maxh} 天完整績效（⭐ = 勝率最高 {best_hold} 天）"):
                 hp_rows = []
-                for hp in golden_hold_data["hold_perf"]:
+                # 排序：勝率高到低（讓你一眼看勝率排名）
+                sorted_hp = sorted(golden_hold_data["hold_perf"], key=lambda x: -x["wr"])
+                for hp in sorted_hp:
                     is_best = hp["hold_days"] == best_hold
                     hp_rows.append({
                         "hold天": ("⭐ " if is_best else "") + str(hp["hold_days"]),
@@ -1736,6 +1745,7 @@ with tab4:
                         "最佳/最差": f"{hp['best']:+.1f}% / {hp['worst']:+.1f}%",
                     })
                 st.dataframe(pd.DataFrame(hp_rows), use_container_width=True, hide_index=True)
+                st.caption("依勝率高到低排序，⭐ = 全期最高勝率 hold 天數")
 
         st.markdown("---")
 
