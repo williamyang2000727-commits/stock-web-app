@@ -1680,7 +1680,7 @@ with tab4:
             f"💎 **依 5/12 過濾後實測**："
             f"🌟 黃金組合（MACD + 量爆 5 日內疊加）勝率 **85.7%** / "
             f"期望值 +14.28% / 盈虧比 4.08 — **業界頂級**。"
-            f"｜ ⭐ **1500 天回測最佳 hold = {best_hold} 天**"
+            f"｜ ⭐ **{golden_hold_data.get('backtest_days', '?')} 天全期回測最佳 hold = {best_hold} 天**"
             f"（{golden_hold_data.get('total_triggers', '?')} 個觸發點驗證）"
         )
 
@@ -1718,9 +1718,11 @@ with tab4:
             f"**單筆預期**：+14% ｜ **勝率**：85.7%"
         )
 
-        # 1500 天回測 hold 績效表（可展開）
+        # 全期回測 hold 績效表（可展開）
         if golden_hold_data.get("hold_perf"):
-            with st.expander(f"📊 1500 天回測：hold 1-30 天完整績效（最佳 = {best_hold} 天）"):
+            _bd = golden_hold_data.get('backtest_days', '?')
+            _maxh = golden_hold_data.get('max_hold_tested', 30)
+            with st.expander(f"📊 {_bd} 天回測：hold 1-{_maxh} 天完整績效（最佳 = {best_hold} 天）"):
                 hp_rows = []
                 for hp in golden_hold_data["hold_perf"]:
                     is_best = hp["hold_days"] == best_hold
