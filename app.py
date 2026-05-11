@@ -1693,11 +1693,19 @@ with tab4:
         )
 
         cb_data = screener_data.get("confluence_buckets", {})
-        golden = sorted(cb_data.get("golden", []),
-                        key=lambda x: x.get("days_after", 99))
+        golden_all = sorted(cb_data.get("golden", []),
+                            key=lambda x: x.get("days_after", 99))
+
+        # 🚨 只列「還在 hold 期內」的 (days_after < best_hold)
+        # 已過 hold 天數的 = 早就該出場，不該顯示在「推薦今天可進場」
+        golden = [r for r in golden_all if r.get("days_after", 99) < best_hold]
+        n_expired = len(golden_all) - len(golden)
 
         if not golden:
-            st.info("過去 5 日內無黃金組合觸發 — 今天不進場，等下一天")
+            st.info(
+                f"過去 {best_hold} 個交易日內無黃金組合觸發 — 今天不進場，等下一天 "
+                f"(總共 {len(golden_all)} 個歷史觸發但都已過 {best_hold} 天 hold 期)"
+            )
         else:
             golden_df = pd.DataFrame([{
                 "新鮮度": ("🟢 今天" if r.get("days_after", 99) == 0
@@ -1708,7 +1716,7 @@ with tab4:
                 "目前價": r["current_price"],
                 "觸發日": r["trigger_date"],
                 "已持有": r.get("days_after", 0),
-                f"⏰ hold 剩餘（最佳{best_hold}天）": max(0, best_hold - r.get("days_after", 0)),
+                f"⏰ hold 剩餘（最佳{best_hold}天）": best_hold - r.get("days_after", 0),
                 "當天漲幅": f"{r.get('daily_return', 0):+.2f}%" if r.get('daily_return') is not None else "-",
                 "乖離MA20": f"{r.get('bias_MA20', 0):+.1f}%" if r.get('bias_MA20') is not None else "-",
                 "符合類別": " + ".join(r.get("confluence_tags", [])),
@@ -1716,6 +1724,8 @@ with tab4:
             } for r in golden])
             st.dataframe(golden_df, use_container_width=True, hide_index=True,
                          height=min(450, len(golden) * 38 + 50))
+            if n_expired > 0:
+                st.caption(f"📌 另有 {n_expired} 個歷史觸發已過 {best_hold} 天 hold 期（不顯示）")
 
         n_golden_today = sum(1 for r in golden if r.get("days_after", 99) == 0)
         n_golden_recent = len(golden)
