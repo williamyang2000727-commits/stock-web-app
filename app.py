@@ -1829,6 +1829,7 @@ with tab4:
                     row["MACD"] = r["MACD"]
                     row["OSC"] = r["OSC"]
                 row["距今"] = r["days_after"]
+                row["剩餘天數"] = r.get("days_to_expire", "?")
                 row["浮動報酬%"] = f"{r['ret_to_today']:+.2f}%"
                 row["贏輸"] = "🟢 贏" if r["ret_to_today"] > 0 else ("🔴 輸" if r["days_after"] >= 1 else "⏳ 當日")
                 rows.append(row)
