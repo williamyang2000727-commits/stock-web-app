@@ -1665,34 +1665,48 @@ with tab4:
     else:
         # 摘要區
         st.markdown("---")
-        c1, c2, c3 = st.columns(3)
         stats = screener_data.get("stats", {})
 
-        with c1:
-            st.metric(
-                "🟢 KD 低位（K<20 AND D<20）",
-                f"{stats.get('kd_low', {}).get('triggers', 0)} 個觸發",
-                f"勝率 {stats.get('kd_low', {}).get('win_rate', 0)}%"
-            )
-        with c2:
-            st.metric(
-                "🟠 量價爆發（連 2 日量增）",
-                f"{stats.get('volume_burst', {}).get('triggers', 0)} 個觸發",
-                f"勝率 {stats.get('volume_burst', {}).get('win_rate', 0)}%"
-            )
-        with c3:
-            st.metric(
-                "🔵 MACD（三選一）",
-                f"{stats.get('macd', {}).get('triggers', 0)} 個觸發",
-                f"勝率 {stats.get('macd', {}).get('win_rate', 0)}%"
-            )
+        # ─── 完整績效表（報酬率為主，勝率為輔）───
+        st.markdown("##### 📊 各類完整績效（報酬率 + 期望值 + 勝率）")
+
+        def get_perf(stats_key):
+            """兼容新舊版 stats 結構"""
+            v = stats.get(stats_key, {})
+            if "perf" in v:
+                return v["perf"], v.get("triggers", 0)
+            # 舊版只有 win_rate
+            return {"wr": v.get("win_rate", 0), "avg_ret": 0, "expected": 0,
+                    "pl_ratio": 0, "total_ret": 0, "best": 0, "worst": 0,
+                    "n": v.get("valid_samples", 0)}, v.get("triggers", 0)
+
+        perf_rows = []
+        for key, label in [
+            ("kd_low", "🟢 KD 低位"),
+            ("volume_burst", "🟠 量價爆發"),
+            ("macd", "🔵 MACD"),
+        ]:
+            p, n_trig = get_perf(key)
+            perf_rows.append({
+                "類別": label,
+                "觸發數": n_trig,
+                "樣本": p.get("n", 0),
+                "勝率": f"{p.get('wr', 0):.1f}%",
+                "平均報酬": f"{p.get('avg_ret', 0):+.2f}%",
+                "💎 期望值": f"{p.get('expected', 0):+.2f}%",
+                "盈虧比": f"{p.get('pl_ratio', 0):.2f}",
+                "總報酬": f"{p.get('total_ret', 0):+.1f}%",
+                "最佳/最差": f"{p.get('best', 0):+.1f}% / {p.get('worst', 0):+.1f}%",
+            })
+        st.dataframe(pd.DataFrame(perf_rows), use_container_width=True, hide_index=True)
 
         st.caption(
-            f"⏰ 資料更新：{screener_data.get('updated', '?')} ｜ "
+            f"💡 **期望值 > 0 = 長期能賺錢**（最重要的指標，比勝率更有意義）｜"
+            f"**盈虧比 > 1.5 = 賺多虧少** ｜ "
+            f"⏰ {screener_data.get('updated', '?')} ｜ "
             f"📅 cache 末日：{screener_data.get('today', '?')} ｜ "
-            f"🔁 回顧期：{screener_data.get('lookback_days', 22)} 交易日 ｜ "
-            f"📉 過濾：日均量 ≥ {screener_data.get('min_volume_lots', 2000)} 張 ｜ "
-            f"📈 勝率定義：觸發日到今天浮動報酬 > 0"
+            f"🔁 回顧期：{screener_data.get('lookback_days', 22)} 日 ｜ "
+            f"📉 日均量 ≥ {screener_data.get('min_volume_lots', 2000)} 張"
         )
 
         results = screener_data.get("results", {})
@@ -1775,13 +1789,30 @@ with tab4:
                 elif tags == {"量爆"}: buckets["只 量爆"].append(info)
                 elif tags == {"MACD"}: buckets["只 MACD"].append(info)
 
-        # 算各 bucket 勝率
-        def bucket_wr(lst):
+        # 算各 bucket 完整績效（勝率 + 平均報酬 + 期望值 + 盈虧比）
+        def bucket_perf(lst):
             valid = [r for r in lst if r.get("days_after", 0) >= 1]
-            if not valid:
-                return 0.0, 0
-            wins = sum(1 for r in valid if r.get("ret_to_today", 0) > 0)
-            return round(wins / len(valid) * 100, 1), len(valid)
+            n = len(valid)
+            if n == 0:
+                return {"n": 0, "wr": 0.0, "avg_ret": 0.0, "expected": 0.0,
+                        "pl_ratio": 0.0, "total_ret": 0.0, "best": 0.0, "worst": 0.0}
+            rets = [r.get("ret_to_today", 0) for r in valid]
+            wins = [r for r in rets if r > 0]
+            losses = [r for r in rets if r <= 0]
+            avg_ret = sum(rets) / n
+            wr = len(wins) / n * 100
+            avg_win = sum(wins) / len(wins) if wins else 0
+            avg_loss = sum(losses) / len(losses) if losses else 0
+            pl_ratio = abs(avg_win / avg_loss) if avg_loss != 0 else 0
+            expected = (wr / 100) * avg_win + (1 - wr / 100) * avg_loss
+            return {"n": n, "wr": round(wr, 1), "avg_ret": round(avg_ret, 2),
+                    "expected": round(expected, 2), "pl_ratio": round(pl_ratio, 2),
+                    "total_ret": round(sum(rets), 1),
+                    "best": round(max(rets), 2), "worst": round(min(rets), 2)}
+
+        def bucket_wr(lst):
+            p = bucket_perf(lst)
+            return p["wr"], p["n"]
 
         # ─── 摘要區：7 個區塊 + 各自勝率 ───
         st.markdown("---")
@@ -1804,25 +1835,38 @@ with tab4:
             "只 量爆":   "🟠 只 量爆",
             "只 MACD":   "🔵 只 MACD",
         }
-        # 只顯示實際有的 bucket（新版 3 個 / 舊版 7 個）
+        # ─── Confluence buckets 完整績效表 ───
         active_keys = list(buckets.keys())
-        n_cols = len(active_keys)
-        cols = st.columns(n_cols)
-        for i, key in enumerate(active_keys):
+        bucket_perf_rows = []
+        for key in active_keys:
             label = bucket_labels.get(key, key)
-            wr, n_v = bucket_wr(buckets[key])
-            with cols[i]:
-                st.metric(
-                    label,
-                    f"{len(buckets[key])} 個",
-                    f"勝率 {wr}%" if n_v > 0 else "勝率 -",
-                )
+            p = bucket_perf(buckets[key])
+            bucket_perf_rows.append({
+                "區塊": label,
+                "檔數": len(buckets[key]),
+                "樣本": p["n"],
+                "勝率": f"{p['wr']:.1f}%",
+                "平均報酬": f"{p['avg_ret']:+.2f}%",
+                "💎 期望值": f"{p['expected']:+.2f}%",
+                "盈虧比": f"{p['pl_ratio']:.2f}",
+                "總報酬": f"{p['total_ret']:+.1f}%",
+                "最佳/最差": f"{p['best']:+.1f}% / {p['worst']:+.1f}%",
+            })
+        st.dataframe(pd.DataFrame(bucket_perf_rows), use_container_width=True, hide_index=True)
+        st.caption("💎 **期望值 > 0 = 長期能賺錢**（最重要）｜盈虧比 > 1.5 = 賺得比虧得多")
 
         # ─── 各區塊清單（從強到弱）───
         def show_bucket(name, label, infos):
             st.markdown("---")
-            wr, n_v = bucket_wr(infos)
-            st.markdown(f"### {label}  ｜  {len(infos)} 個觸發  ｜  勝率 {wr}% ({n_v} 樣本)")
+            p = bucket_perf(infos)
+            st.markdown(
+                f"### {label}  ｜  **{len(infos)} 個觸發** ｜ "
+                f"💎 期望值 **{p['expected']:+.2f}%** ｜ "
+                f"平均 {p['avg_ret']:+.2f}% ｜ "
+                f"勝率 {p['wr']:.1f}% ｜ "
+                f"盈虧比 {p['pl_ratio']:.2f} ｜ "
+                f"樣本 {p['n']}"
+            )
             if not infos:
                 st.info("過去 22 日無觸發")
                 return
