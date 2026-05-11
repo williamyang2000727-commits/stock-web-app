@@ -1669,21 +1669,56 @@ with tab4:
         results_data = screener_data.get("results", {})
 
         # ═══════════════════════════════════════════
-        # 🎯 推薦今天可進場 — 只列 MACD（期望值最高 +23.18%）
+        # 🎯 推薦今天可進場 — 黃金組合優先 + MACD 補充
         # ═══════════════════════════════════════════
-        st.markdown("### 🎯 推薦今天可進場（只列 MACD — 期望值最高 +23.18%）")
+        st.markdown("### 🎯 推薦今天可進場（依 5/12 過濾後績效實測排序）")
         st.caption(
-            "💎 **依 5/12 績效驗證**：MACD 期望值 +23.18%、勝率 81%、盈虧比 6.07（最強組合）。"
-            "量爆期望值 +12% 太分散、KD +0.77% 扣手續費後虧。**只列 MACD 今天/昨天才觸發**。"
+            "💎 **依 5/12 過濾後實測（4 道品質過濾後）**："
+            "🌟 黃金組合勝率 **85.7%** / 期望值 +14.28% / 盈虧比 4.08（最強）｜"
+            "🔵 只 MACD 勝率 76% / 期望值 +14.85%（次強）。"
+            "下方優先列黃金組合（最強），其次 MACD 單獨。"
         )
+
+        cb_data = screener_data.get("confluence_buckets", {})
+
+        # === ⭐ 黃金組合（5 日內 MACD + 量爆，最強訊號）===
+        st.markdown("#### 🌟 黃金組合 (MACD + 量爆 5 日內疊加) — 最強訊號")
+        st.caption("勝率 85.7% / 期望值 +14.28% / 盈虧比 4.08 — 5/12 過濾後實測")
+        golden = sorted(cb_data.get("golden", []),
+                        key=lambda x: x.get("days_after", 99))
+        if not golden:
+            st.info("過去 5 日內無黃金組合觸發 — 等下一天")
+        else:
+            golden_df = pd.DataFrame([{
+                "新鮮度": ("🟢 今天" if r.get("days_after", 99) == 0
+                          else "🟡 昨天" if r.get("days_after", 99) == 1
+                          else f"📅 {r.get('days_after', '?')} 天前"),
+                "股號": r["ticker"].split(".")[0],
+                "公司名": r["name"],
+                "目前價": r["current_price"],
+                "觸發日": r["trigger_date"],
+                "當天漲幅": f"{r.get('daily_return', 0):+.2f}%" if r.get('daily_return') is not None else "-",
+                "乖離MA20": f"{r.get('bias_MA20', 0):+.1f}%" if r.get('bias_MA20') is not None else "-",
+                "符合類別": " + ".join(r.get("confluence_tags", [])),
+                "浮動報酬": f"{r.get('ret_to_today', 0):+.2f}%",
+            } for r in golden])
+            st.dataframe(golden_df, use_container_width=True, hide_index=True,
+                         height=min(400, len(golden) * 38 + 50))
+
+        # === 🔵 MACD 單獨（剛觸發，days_after ≤ 1）===
+        st.markdown("#### 🔵 MACD 強訊號 — 新鮮觸發（今天/昨天）")
+        st.caption("勝率 76% / 期望值 +14.85% / 盈虧比 5.49 — 黃金組合不夠看可選這個")
 
         rec_macd = sorted(
             [r for r in results_data.get("macd", []) if r.get("days_after", 99) <= 1],
             key=lambda x: (x.get("days_after", 99), x.get("ticker", ""))
         )
+        # 去重：黃金組合裡已有的 ticker 不重複列
+        golden_tks = {r["ticker"] for r in golden}
+        rec_macd = [r for r in rec_macd if r["ticker"] not in golden_tks]
 
         if not rec_macd:
-            st.info("今天/昨天無 MACD 新觸發訊號 — 等下一天")
+            st.info("今天/昨天無 MACD 新觸發訊號（不在黃金組合裡的）")
         else:
             rec_macd_df = pd.DataFrame([{
                 "新鮮度": "🟢 今天" if r["days_after"] == 0 else "🟡 昨天",
@@ -1691,7 +1726,6 @@ with tab4:
                 "公司名": r["name"],
                 "目前價": r["current_price"],
                 "觸發日": r["trigger_date"],
-                "觸發收盤": r["trigger_close"],
                 "當天漲幅": f"{r.get('daily_return', 0):+.2f}%",
                 "乖離MA20": f"{r.get('bias_MA20', 0):+.1f}%",
                 "DIF": r.get("DIF", "?"),
@@ -1700,14 +1734,19 @@ with tab4:
                 "MA50": r.get("MA50", "?"),
             } for r in rec_macd])
             st.dataframe(rec_macd_df, use_container_width=True, hide_index=True,
-                         height=min(450, len(rec_macd) * 38 + 50))
+                         height=min(400, len(rec_macd) * 38 + 50))
 
-        n_today_macd = sum(1 for r in rec_macd if r["days_after"] == 0)
-        n_yest_macd = sum(1 for r in rec_macd if r["days_after"] == 1)
+        # === 統計 + 下單提示 ===
+        n_golden_today = sum(1 for r in golden if r.get("days_after", 99) == 0)
+        n_golden_recent = len(golden)
+        n_macd_today = sum(1 for r in rec_macd if r["days_after"] == 0)
+        n_macd_yest = sum(1 for r in rec_macd if r["days_after"] == 1)
         st.success(
-            f"📌 **今天 {n_today_macd} 檔 / 昨天 {n_yest_macd} 檔 MACD 新訊號**。"
-            f"挑你最看好的 1-2 檔，**明日 09:00 開盤前下單**。"
-            f"歷史期望值 +23.18%、勝率 81%、盈虧比 6.07，最強組合。"
+            f"📌 **黃金組合 {n_golden_recent} 檔**（今天剛觸發 {n_golden_today} 檔）｜"
+            f"**MACD 新鮮 {n_macd_today + n_macd_yest} 檔**（今天 {n_macd_today} / 昨天 {n_macd_yest}）｜"
+            f"\n\n🎯 **進場優先級**：黃金組合 > MACD 單獨 ｜ "
+            f"**下單時機**：明日 09:00 開盤前 ｜ "
+            f"**單筆預期**：+14% 浮動報酬"
         )
 
         st.markdown("---")
