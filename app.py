@@ -1700,11 +1700,19 @@ with tab4:
         vol_list = results.get("volume_burst", [])
         macd_list = results.get("macd", [])
 
-        # ─────── 用 screener 算好的 5 日滑動視窗 confluence buckets（業界共識）───────
+        # ─────── 用 screener 算好的加權 confluence buckets（業界共識，KD 不算）───────
         # 若沒有 confluence_buckets（舊版 Gist）→ fallback 同日 confluence
         cb = screener_data.get("confluence_buckets", None)
-        if cb is not None:
-            # 新版：5 日滑動視窗，screener 已分好
+        if cb is not None and "golden" in cb:
+            # 新版：MACD+量爆 黃金組合 + KD 純參考
+            buckets = {
+                "🌟 黃金組合 (MACD + 量爆 5 日內)": cb.get("golden", []),
+                "🔵 只 MACD": cb.get("macd_only", []),
+                "🟠 只 量爆": cb.get("vol_only", []),
+                "📌 KD 低位 (僅參考，業界平均 46-50%)": cb.get("kd_reference", []),
+            }
+        elif cb is not None and "triple" in cb:
+            # 中間版（5/12 早 commit 117beb9）：3 類滑動視窗
             buckets = {
                 "三冠王 (5日內 3 類)": cb.get("triple", []),
                 "中 2 類 (5日內任 2 類)": cb.get("double", []),
@@ -1779,6 +1787,12 @@ with tab4:
         st.markdown("---")
         st.markdown("### 📊 7 個互斥區塊（同一檔同一天只會出現在 1 個區塊）")
         bucket_labels = {
+            # 新版加權 confluence labels (MACD+量爆 黃金組合)
+            "🌟 黃金組合 (MACD + 量爆 5 日內)": "🌟 黃金組合",
+            "🔵 只 MACD": "🔵 只 MACD",
+            "🟠 只 量爆": "🟠 只 量爆",
+            "📌 KD 低位 (僅參考，業界平均 46-50%)": "📌 KD 參考",
+            # 中間版 labels
             "三冠王 (5日內 3 類)": "🌟 三冠王 (5日內 KD+量爆+MACD)",
             "中 2 類 (5日內任 2 類)": "💎 中 2 類 (5日內 2 類觸發)",
             "只 1 類": "▫️ 只 1 類",
