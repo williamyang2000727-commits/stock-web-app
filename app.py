@@ -1666,6 +1666,19 @@ with tab4:
     st.caption("過去 22 個交易日內觸發過 3 類技術條件的股票（每天 Windows 16:35 pipeline 自動更新）")
 
     screener_data = read_gist_file("screener_results.json")
+
+    # 🚨 資料新鮮度檢查（5/12 加：避免顯示過期資料而不自知）
+    if screener_data:
+        _scr_today = screener_data.get("today", "")
+        _scr_updated = screener_data.get("updated", "")[:10]
+        _today_tw_check = _now_tw_pipe.strftime("%Y-%m-%d") if '_now_tw_pipe' in dir() else date.today().isoformat()
+        if _scr_today and _scr_today != _today_tw_check and _scr_updated != _today_tw_check:
+            st.warning(
+                f"⚠️ **篩選資料是 {_scr_today or _scr_updated} 的（不是今天 {_today_tw_check}）**。"
+                f"Windows 16:35 pipeline 可能還沒跑或失敗。"
+                f"訊號清單可能過期，請等 pipeline 跑完或手動 `python auto_daily_pipeline.py --force`。"
+            )
+
     if not screener_data:
         st.warning("篩選資料尚未產生，等 Windows 16:35 pipeline 第一次跑完即顯示。")
     else:
