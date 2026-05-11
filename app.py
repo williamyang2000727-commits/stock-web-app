@@ -1666,6 +1666,50 @@ with tab4:
         # 摘要區
         st.markdown("---")
         stats = screener_data.get("stats", {})
+        results_data = screener_data.get("results", {})
+
+        # ═══════════════════════════════════════════
+        # 🎯 推薦今天可進場 — 只列 MACD（期望值最高 +23.18%）
+        # ═══════════════════════════════════════════
+        st.markdown("### 🎯 推薦今天可進場（只列 MACD — 期望值最高 +23.18%）")
+        st.caption(
+            "💎 **依 5/12 績效驗證**：MACD 期望值 +23.18%、勝率 81%、盈虧比 6.07（最強組合）。"
+            "量爆期望值 +12% 太分散、KD +0.77% 扣手續費後虧。**只列 MACD 今天/昨天才觸發**。"
+        )
+
+        rec_macd = sorted(
+            [r for r in results_data.get("macd", []) if r.get("days_after", 99) <= 1],
+            key=lambda x: (x.get("days_after", 99), x.get("ticker", ""))
+        )
+
+        if not rec_macd:
+            st.info("今天/昨天無 MACD 新觸發訊號 — 等下一天")
+        else:
+            rec_macd_df = pd.DataFrame([{
+                "新鮮度": "🟢 今天" if r["days_after"] == 0 else "🟡 昨天",
+                "股號": r["ticker"].split(".")[0],
+                "公司名": r["name"],
+                "目前價": r["current_price"],
+                "觸發日": r["trigger_date"],
+                "觸發收盤": r["trigger_close"],
+                "DIF": r.get("DIF", "?"),
+                "MACD": r.get("MACD", "?"),
+                "OSC": r.get("OSC", "?"),
+                "MA50": r.get("MA50", "?"),
+                "MACD類型": r.get("macd_type", "?"),
+            } for r in rec_macd])
+            st.dataframe(rec_macd_df, use_container_width=True, hide_index=True,
+                         height=min(450, len(rec_macd) * 38 + 50))
+
+        n_today_macd = sum(1 for r in rec_macd if r["days_after"] == 0)
+        n_yest_macd = sum(1 for r in rec_macd if r["days_after"] == 1)
+        st.success(
+            f"📌 **今天 {n_today_macd} 檔 / 昨天 {n_yest_macd} 檔 MACD 新訊號**。"
+            f"挑你最看好的 1-2 檔，**明日 09:00 開盤前下單**。"
+            f"歷史期望值 +23.18%、勝率 81%、盈虧比 6.07，最強組合。"
+        )
+
+        st.markdown("---")
 
         # ─── 完整績效表（報酬率為主，勝率為輔）───
         st.markdown("##### 📊 各類完整績效（報酬率 + 期望值 + 勝率）")
