@@ -1692,11 +1692,12 @@ with tab4:
                 "目前價": r["current_price"],
                 "觸發日": r["trigger_date"],
                 "觸發收盤": r["trigger_close"],
+                "當天漲幅": f"{r.get('daily_return', 0):+.2f}%",
+                "乖離MA20": f"{r.get('bias_MA20', 0):+.1f}%",
                 "DIF": r.get("DIF", "?"),
                 "MACD": r.get("MACD", "?"),
                 "OSC": r.get("OSC", "?"),
                 "MA50": r.get("MA50", "?"),
-                "MACD類型": r.get("macd_type", "?"),
             } for r in rec_macd])
             st.dataframe(rec_macd_df, use_container_width=True, hide_index=True,
                          height=min(450, len(rec_macd) * 38 + 50))
