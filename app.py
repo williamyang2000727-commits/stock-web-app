@@ -587,7 +587,7 @@ elif _pipeline_ran_today:
     st.success(f"✅ Pipeline 今日 {_pipeline_updated[11:19]} 已跑 — 所有資料對齊 cpu_replay 真公式（全期 {_real_days} 天）")
 
 # ── Tabs ──
-tab0, tab1, tab2, tab3 = st.tabs([signal_label, "📊 買入排行", "💼 持倉管理", "📋 回測績效"])
+tab0, tab1, tab2, tab3, tab4 = st.tabs([signal_label, "📊 買入排行", "💼 持倉管理", "📋 回測績效", "🔍 篩選器"])
 
 # ══════════════════════════════════════════════════════════════
 # TAB 0: SIGNALS
@@ -1650,3 +1650,156 @@ with tab3:
                 st.caption(f"  {r}：{count} 次")
     else:
         st.info("回測資料準備中...歷史資料下載完成後會自動顯示。")
+
+
+# ══════════════════════════════════════════════════════════════
+# TAB 4: SCREENER（5/12 新增：3 類股票篩選）
+# ══════════════════════════════════════════════════════════════
+with tab4:
+    st.subheader("🔍 股票篩選器")
+    st.caption("過去 22 個交易日內觸發過 3 類技術條件的股票（每天 Windows 16:35 pipeline 自動更新）")
+
+    screener_data = read_gist_file("screener_results.json")
+    if not screener_data:
+        st.warning("篩選資料尚未產生，等 Windows 16:35 pipeline 第一次跑完即顯示。")
+    else:
+        # 摘要區
+        st.markdown("---")
+        c1, c2, c3 = st.columns(3)
+        stats = screener_data.get("stats", {})
+
+        with c1:
+            st.metric(
+                "🟢 KD 低位（K<20 AND D<20）",
+                f"{stats.get('kd_low', {}).get('triggers', 0)} 個觸發",
+                f"勝率 {stats.get('kd_low', {}).get('win_rate', 0)}%"
+            )
+        with c2:
+            st.metric(
+                "🟠 量價爆發（連 2 日量增）",
+                f"{stats.get('volume_burst', {}).get('triggers', 0)} 個觸發",
+                f"勝率 {stats.get('volume_burst', {}).get('win_rate', 0)}%"
+            )
+        with c3:
+            st.metric(
+                "🔵 MACD（三選一）",
+                f"{stats.get('macd', {}).get('triggers', 0)} 個觸發",
+                f"勝率 {stats.get('macd', {}).get('win_rate', 0)}%"
+            )
+
+        st.caption(
+            f"⏰ 資料更新：{screener_data.get('updated', '?')} ｜ "
+            f"📅 cache 末日：{screener_data.get('today', '?')} ｜ "
+            f"🔁 回顧期：{screener_data.get('lookback_days', 22)} 交易日 ｜ "
+            f"📉 過濾：日均量 ≥ {screener_data.get('min_volume_lots', 2000)} 張 ｜ "
+            f"📈 勝率定義：觸發日到今天浮動報酬 > 0"
+        )
+
+        results = screener_data.get("results", {})
+
+        # ── 第 1 類：KD 低位 ──
+        st.markdown("---")
+        st.markdown("### 🟢 第 1 類：KD 低位（K<20 AND D<20）")
+        kd_list = results.get("kd_low", [])
+        if not kd_list:
+            st.info("過去 22 日無觸發")
+        else:
+            kd_df = pd.DataFrame([{
+                "股號": r["ticker"].split(".")[0],
+                "公司名": r["name"],
+                "目前價": r["current_price"],
+                "觸發日": r["trigger_date"],
+                "觸發收盤": r["trigger_close"],
+                "K": r["K"],
+                "D": r["D"],
+                "距今天數": r["days_after"],
+                "浮動報酬%": f"{r['ret_to_today']:+.2f}%",
+                "贏輸": "🟢 贏" if r["ret_to_today"] > 0 else ("🔴 輸" if r["days_after"] >= 1 else "⏳ 當日"),
+            } for r in kd_list])
+            kd_df = kd_df.sort_values("觸發日", ascending=False).reset_index(drop=True)
+            st.dataframe(kd_df, use_container_width=True, hide_index=True, height=350)
+
+        # ── 第 2 類：量價爆發 ──
+        st.markdown("---")
+        st.markdown("### 🟠 第 2 類：量價爆發（今 ≥ 昨×1.4 AND 昨 ≥ 前×1.6）")
+        vol_list = results.get("volume_burst", [])
+        if not vol_list:
+            st.info("過去 22 日無觸發")
+        else:
+            vol_df = pd.DataFrame([{
+                "股號": r["ticker"].split(".")[0],
+                "公司名": r["name"],
+                "目前價": r["current_price"],
+                "觸發日": r["trigger_date"],
+                "觸發收盤": r["trigger_close"],
+                "前天量(張)": r["vol_pre"],
+                "昨天量(張)": r["vol_yest"],
+                "今天量(張)": r["vol_today"],
+                "今/昨倍數": f"{r['ratio_1']}x",
+                "昨/前倍數": f"{r['ratio_2']}x",
+                "距今天數": r["days_after"],
+                "浮動報酬%": f"{r['ret_to_today']:+.2f}%",
+                "贏輸": "🟢 贏" if r["ret_to_today"] > 0 else ("🔴 輸" if r["days_after"] >= 1 else "⏳ 當日"),
+            } for r in vol_list])
+            vol_df = vol_df.sort_values("觸發日", ascending=False).reset_index(drop=True)
+            st.dataframe(vol_df, use_container_width=True, hide_index=True, height=350)
+
+        # ── 第 3 類：MACD ──
+        st.markdown("---")
+        st.markdown("### 🔵 第 3 類：MACD（OSC 轉正 / DIF MACD 皆負 / DIF≥MACD）")
+        macd_list = results.get("macd", [])
+        if not macd_list:
+            st.info("過去 22 日無觸發")
+        else:
+            macd_df = pd.DataFrame([{
+                "股號": r["ticker"].split(".")[0],
+                "公司名": r["name"],
+                "目前價": r["current_price"],
+                "觸發日": r["trigger_date"],
+                "觸發收盤": r["trigger_close"],
+                "MACD類型": r["macd_type"],
+                "DIF": r["DIF"],
+                "MACD": r["MACD"],
+                "OSC": r["OSC"],
+                "距今天數": r["days_after"],
+                "浮動報酬%": f"{r['ret_to_today']:+.2f}%",
+                "贏輸": "🟢 贏" if r["ret_to_today"] > 0 else ("🔴 輸" if r["days_after"] >= 1 else "⏳ 當日"),
+            } for r in macd_list])
+            macd_df = macd_df.sort_values("觸發日", ascending=False).reset_index(drop=True)
+            st.dataframe(macd_df, use_container_width=True, hide_index=True, height=400)
+
+        # ── 同時符合多類 ──
+        st.markdown("---")
+        st.markdown("### 🌟 同時符合 2 類以上（更強訊號）")
+        # 用 (ticker, trigger_date) 當 key 找重疊
+        all_keys = {}
+        for r in kd_list:
+            k = (r["ticker"], r["trigger_date"])
+            all_keys.setdefault(k, set()).add("KD")
+            all_keys[k] = (all_keys.get(k, set()) | {"KD"}, r)
+        for r in vol_list:
+            k = (r["ticker"], r["trigger_date"])
+            existing = all_keys.get(k, (set(), r))
+            all_keys[k] = (existing[0] | {"量爆"}, r)
+        for r in macd_list:
+            k = (r["ticker"], r["trigger_date"])
+            existing = all_keys.get(k, (set(), r))
+            all_keys[k] = (existing[0] | {"MACD"}, r)
+
+        multi = [(k, tags, info) for k, (tags, info) in all_keys.items() if len(tags) >= 2]
+        if not multi:
+            st.info("過去 22 日無「同日同股同時觸發 ≥ 2 類」")
+        else:
+            multi_df = pd.DataFrame([{
+                "股號": k[0].split(".")[0],
+                "公司名": info["name"],
+                "目前價": info["current_price"],
+                "觸發日": k[1],
+                "觸發收盤": info["trigger_close"],
+                "符合類別": " + ".join(sorted(tags)),
+                "類別數": len(tags),
+                "距今天數": info["days_after"],
+                "浮動報酬%": f"{info['ret_to_today']:+.2f}%",
+            } for k, tags, info in multi])
+            multi_df = multi_df.sort_values(["類別數", "觸發日"], ascending=[False, False]).reset_index(drop=True)
+            st.dataframe(multi_df, use_container_width=True, hide_index=True, height=300)
