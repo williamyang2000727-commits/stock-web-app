@@ -1802,42 +1802,10 @@ with tab4:
 
           st.markdown("---")
 
-          # ─── 完整績效表（報酬率為主，勝率為輔）───
-          st.markdown("##### 📊 各類完整績效（報酬率 + 期望值 + 勝率）")
-
-          def get_perf(stats_key):
-              """兼容新舊版 stats 結構"""
-              v = stats.get(stats_key, {})
-              if "perf" in v:
-                  return v["perf"], v.get("triggers", 0)
-              # 舊版只有 win_rate
-              return {"wr": v.get("win_rate", 0), "avg_ret": 0, "expected": 0,
-                      "pl_ratio": 0, "total_ret": 0, "best": 0, "worst": 0,
-                      "n": v.get("valid_samples", 0)}, v.get("triggers", 0)
-
-          perf_rows = []
-          for key, label in [
-              ("kd_low", "🟢 KD 低位"),
-              ("volume_burst", "🟠 量價爆發"),
-              ("macd", "🔵 MACD"),
-          ]:
-              p, n_trig = get_perf(key)
-              perf_rows.append({
-                  "類別": label,
-                  "觸發數": n_trig,
-                  "樣本": p.get("n", 0),
-                  "勝率": f"{p.get('wr', 0):.1f}%",
-                  "平均報酬": f"{p.get('avg_ret', 0):+.2f}%",
-                  "💎 期望值": f"{p.get('expected', 0):+.2f}%",
-                  "盈虧比": f"{p.get('pl_ratio', 0):.2f}",
-                  "總報酬": f"{p.get('total_ret', 0):+.1f}%",
-                  "最佳/最差": f"{p.get('best', 0):+.1f}% / {p.get('worst', 0):+.1f}%",
-              })
-          st.dataframe(pd.DataFrame(perf_rows), use_container_width=True, hide_index=True)
-
+          # 5/12 簡化：刪掉「📊 各類完整績效」3 類表（只 KD / 只 量爆 / 只 MACD）
+          # 這些單一類別資料不參與決策（只看黃金組合），刪掉讓頁面乾淨
+          # 只保留底部 metadata caption
           st.caption(
-              f"💡 **期望值 > 0 = 長期能賺錢**（最重要的指標，比勝率更有意義）｜"
-              f"**盈虧比 > 1.5 = 賺多虧少** ｜ "
               f"⏰ {screener_data.get('updated', '?')} ｜ "
               f"📅 cache 末日：{screener_data.get('today', '?')} ｜ "
               f"🔁 回顧期：{screener_data.get('lookback_days', 22)} 日 ｜ "
@@ -1949,9 +1917,9 @@ with tab4:
               p = bucket_perf(lst)
               return p["wr"], p["n"]
 
-          # ─── 摘要區：7 個區塊 + 各自勝率 ───
+          # 5/12 簡化：刪掉「7 個互斥區塊」標題，只剩黃金組合一個 bucket
           st.markdown("---")
-          st.markdown("### 📊 7 個互斥區塊（同一檔同一天只會出現在 1 個區塊）")
+          st.markdown("### 🌟 黃金組合詳情")
           bucket_labels = {
               # 新版加權 confluence labels (MACD+量爆 黃金組合)
               "🌟 黃金組合 (MACD + 量爆 5 日內)": "🌟 黃金組合",
@@ -1971,7 +1939,8 @@ with tab4:
               "只 MACD":   "🔵 只 MACD",
           }
           # ─── Confluence buckets 完整績效表 ───
-          active_keys = list(buckets.keys())
+          # 5/12 簡化：只顯示黃金組合績效，不顯示「只 MACD / 只 量爆 / KD 參考」
+          active_keys = [k for k in buckets.keys() if "黃金組合" in k or "三冠王" in k]
           bucket_perf_rows = []
           for key in active_keys:
               label = bucket_labels.get(key, key)
@@ -1987,7 +1956,8 @@ with tab4:
                   "總報酬": f"{p['total_ret']:+.1f}%",
                   "最佳/最差": f"{p['best']:+.1f}% / {p['worst']:+.1f}%",
               })
-          st.dataframe(pd.DataFrame(bucket_perf_rows), use_container_width=True, hide_index=True)
+          if bucket_perf_rows:
+              st.dataframe(pd.DataFrame(bucket_perf_rows), use_container_width=True, hide_index=True)
           st.caption("💎 **期望值 > 0 = 長期能賺錢**（最重要）｜盈虧比 > 1.5 = 賺得比虧得多")
 
           # ─── 各區塊清單（從強到弱）───
@@ -2037,6 +2007,9 @@ with tab4:
               df_bucket = pd.DataFrame(rows).sort_values("觸發日", ascending=False).reset_index(drop=True)
               st.dataframe(df_bucket, use_container_width=True, hide_index=True, height=min(400, max(150, len(rows) * 38 + 50)))
 
-          # 從強到弱顯示（動態：active_keys 已是順序）
+          # 從強到弱顯示（5/12 簡化：只顯示黃金組合，不顯示「只 MACD / 只 量爆 / KD 參考」）
+          # 推薦今天可進場區塊已經列出黃金組合所有觸發，這裡不重複
           for key in active_keys:
-              show_bucket(key, bucket_labels.get(key, key), buckets[key])
+              # 只顯示黃金組合相關 bucket（過濾掉「只 X」單一類別）
+              if "黃金組合" in key or "三冠王" in key:
+                  show_bucket(key, bucket_labels.get(key, key), buckets[key])
