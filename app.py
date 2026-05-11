@@ -1683,7 +1683,7 @@ with tab4:
         best_hold = (golden_hold_data.get("best_hold_balanced")
                      or golden_hold_data.get("best_hold_by_wr", 10))
 
-        # 找出該 hold 的勝率
+        # 找出該 hold 的完整 perf
         _best_perf = None
         for hp in golden_hold_data.get("hold_perf", []):
             if hp["hold_days"] == best_hold:
@@ -1691,21 +1691,22 @@ with tab4:
                 break
         _best_wr = _best_perf["wr"] if _best_perf else "?"
         _best_avg = _best_perf["avg_ret"] if _best_perf else "?"
+        _best_exp = _best_perf["expected"] if _best_perf else "?"
+        _best_pl = _best_perf["pl_ratio"] if _best_perf else "?"
 
-        # 從 screener stats 動態抓 22 日內黃金組合績效
+        # 22 日近期觸發數（純資訊不顯示勝率，避免 7 樣本誤導 + timing 不一致）
         _golden_stats = stats.get("golden", {}).get("perf", {})
-        _g_wr = _golden_stats.get("wr", "?")
-        _g_ev = _golden_stats.get("expected", "?")
-        _g_pl = _golden_stats.get("pl_ratio", "?")
-        _g_n = _golden_stats.get("n", "?")
+        _g_n_recent = _golden_stats.get("n", 0)
 
-        st.markdown("### 🎯 推薦今天可進場（只列黃金組合 — 折衷勝率+整齊）")
+        st.markdown("### 🎯 推薦今天可進場（只列黃金組合）")
         st.caption(
-            f"💎 **黃金組合（MACD + 量爆 5 日內疊加）— 過去 22 個交易日內實測**："
-            f"勝率 **{_g_wr}%** / 期望值 {_g_ev}% / 盈虧比 {_g_pl} ({_g_n} 個樣本)"
-            f"｜ ⭐ **{golden_hold_data.get('backtest_days', '?')} 天回測：建議 hold = {best_hold} 天**"
-            f"（勝率 {_best_wr}% / 平均報酬 {_best_avg}% / "
-            f"{golden_hold_data.get('total_triggers', '?')} 個觸發點驗證）"
+            f"💎 **黃金組合（MACD + 量爆 5 日內疊加）— "
+            f"{golden_hold_data.get('backtest_days', '?')} 天回測實證**："
+            f"勝率 **{_best_wr}%** / 平均 {_best_avg}% / 期望值 {_best_exp}% / "
+            f"盈虧比 {_best_pl} / {golden_hold_data.get('total_triggers', '?')} 個觸發點"
+            f"｜ ⭐ **建議 hold = {best_hold} 天**"
+            f"（D+1 收盤前買 → D+{best_hold+1} 開盤賣，對齊主策略 SOP）"
+            f"｜ 📌 過去 22 日內觸發 {_g_n_recent} 檔（顯示在下方表格）"
         )
 
         cb_data = screener_data.get("confluence_buckets", {})
