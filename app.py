@@ -1671,12 +1671,17 @@ with tab4:
         # ═══════════════════════════════════════════
         # 🎯 推薦今天可進場 — 只列黃金組合（最強，勝率 85.7%）
         # ═══════════════════════════════════════════
+        # 載入最佳 hold（1500 天回測結果）
+        golden_hold_data = read_gist_file("golden_optimal_hold.json") or {}
+        best_hold = golden_hold_data.get("best_hold_by_expected_net", 10)  # 預設 10 天
+
         st.markdown("### 🎯 推薦今天可進場（只列黃金組合 — 最強訊號）")
         st.caption(
-            "💎 **依 5/12 過濾後實測**："
-            "🌟 黃金組合（MACD + 量爆 5 日內疊加）勝率 **85.7%** / "
-            "期望值 +14.28% / 盈虧比 4.08 — **業界頂級**。"
-            "只列這一個區塊，紀律進場。"
+            f"💎 **依 5/12 過濾後實測**："
+            f"🌟 黃金組合（MACD + 量爆 5 日內疊加）勝率 **85.7%** / "
+            f"期望值 +14.28% / 盈虧比 4.08 — **業界頂級**。"
+            f"｜ ⭐ **1500 天回測最佳 hold = {best_hold} 天**"
+            f"（{golden_hold_data.get('total_triggers', '?')} 個觸發點驗證）"
         )
 
         cb_data = screener_data.get("confluence_buckets", {})
@@ -1694,6 +1699,8 @@ with tab4:
                 "公司名": r["name"],
                 "目前價": r["current_price"],
                 "觸發日": r["trigger_date"],
+                "已持有": r.get("days_after", 0),
+                f"⏰ hold 剩餘（最佳{best_hold}天）": max(0, best_hold - r.get("days_after", 0)),
                 "當天漲幅": f"{r.get('daily_return', 0):+.2f}%" if r.get('daily_return') is not None else "-",
                 "乖離MA20": f"{r.get('bias_MA20', 0):+.1f}%" if r.get('bias_MA20') is not None else "-",
                 "符合類別": " + ".join(r.get("confluence_tags", [])),
@@ -1707,9 +1714,26 @@ with tab4:
         st.success(
             f"📌 **黃金組合 {n_golden_recent} 檔**（今天剛觸發 {n_golden_today} 檔）｜"
             f"**下單時機**：明日 09:00 開盤前 ｜ "
-            f"**單筆預期**：+14% 浮動報酬 ｜ "
-            f"**勝率**：85.7%"
+            f"**最佳 hold**：{best_hold} 天（1500 天回測）｜ "
+            f"**單筆預期**：+14% ｜ **勝率**：85.7%"
         )
+
+        # 1500 天回測 hold 績效表（可展開）
+        if golden_hold_data.get("hold_perf"):
+            with st.expander(f"📊 1500 天回測：hold 1-30 天完整績效（最佳 = {best_hold} 天）"):
+                hp_rows = []
+                for hp in golden_hold_data["hold_perf"]:
+                    is_best = hp["hold_days"] == best_hold
+                    hp_rows.append({
+                        "hold天": ("⭐ " if is_best else "") + str(hp["hold_days"]),
+                        "樣本": hp["n_samples"],
+                        "勝率": f"{hp['wr']:.1f}%",
+                        "平均報酬(扣手續費)": f"{hp['avg_net']:+.2f}%",
+                        "期望值(扣手續費)": f"{hp['expected_net']:+.2f}%",
+                        "盈虧比": f"{hp['pl_ratio']:.2f}",
+                        "最佳/最差": f"{hp['best']:+.1f}% / {hp['worst']:+.1f}%",
+                    })
+                st.dataframe(pd.DataFrame(hp_rows), use_container_width=True, hide_index=True)
 
         st.markdown("---")
 
