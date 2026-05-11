@@ -1700,71 +1700,72 @@ with tab4:
         vol_list = results.get("volume_burst", [])
         macd_list = results.get("macd", [])
 
-        # ─────── 互斥分類：每個 (ticker, trigger_date) 算它符合哪幾類 ───────
-        # tag_map[(ticker, date)] = (set_of_tags, info_dict)
-        tag_map = {}
-        for r in kd_list:
-            k = (r["ticker"], r["trigger_date"])
-            tag_map.setdefault(k, [set(), {}])
-            tag_map[k][0].add("KD")
-            tag_map[k][1].update({"kd_K": r["K"], "kd_D": r["D"]})
-            tag_map[k][1].update({"ticker": r["ticker"], "name": r["name"],
-                                  "current_price": r["current_price"],
-                                  "trigger_date": r["trigger_date"],
-                                  "trigger_close": r["trigger_close"],
-                                  "days_after": r["days_after"],
-                                  "ret_to_today": r["ret_to_today"]})
-        for r in vol_list:
-            k = (r["ticker"], r["trigger_date"])
-            tag_map.setdefault(k, [set(), {}])
-            tag_map[k][0].add("量爆")
-            tag_map[k][1].update({"vol_today": r["vol_today"], "vol_yest": r["vol_yest"],
-                                  "vol_pre": r["vol_pre"],
-                                  "ratio_1": r["ratio_1"], "ratio_2": r["ratio_2"]})
-            tag_map[k][1].update({"ticker": r["ticker"], "name": r["name"],
-                                  "current_price": r["current_price"],
-                                  "trigger_date": r["trigger_date"],
-                                  "trigger_close": r["trigger_close"],
-                                  "days_after": r["days_after"],
-                                  "ret_to_today": r["ret_to_today"]})
-        for r in macd_list:
-            k = (r["ticker"], r["trigger_date"])
-            tag_map.setdefault(k, [set(), {}])
-            tag_map[k][0].add("MACD")
-            tag_map[k][1].update({"macd_type": r["macd_type"], "DIF": r["DIF"],
-                                  "MACD": r["MACD"], "OSC": r["OSC"]})
-            tag_map[k][1].update({"ticker": r["ticker"], "name": r["name"],
-                                  "current_price": r["current_price"],
-                                  "trigger_date": r["trigger_date"],
-                                  "trigger_close": r["trigger_close"],
-                                  "days_after": r["days_after"],
-                                  "ret_to_today": r["ret_to_today"]})
-
-        # 互斥分組
-        buckets = {
-            "三冠王": [],          # KD + 量爆 + MACD
-            "KD+量爆": [],
-            "KD+MACD": [],
-            "量爆+MACD": [],
-            "只 KD": [],
-            "只 量爆": [],
-            "只 MACD": [],
-        }
-        for k, (tags, info) in tag_map.items():
-            if tags == {"KD", "量爆", "MACD"}:
-                buckets["三冠王"].append(info)
-            elif tags == {"KD", "量爆"}:
-                buckets["KD+量爆"].append(info)
-            elif tags == {"KD", "MACD"}:
-                buckets["KD+MACD"].append(info)
-            elif tags == {"量爆", "MACD"}:
-                buckets["量爆+MACD"].append(info)
-            elif tags == {"KD"}:
-                buckets["只 KD"].append(info)
-            elif tags == {"量爆"}:
-                buckets["只 量爆"].append(info)
-            elif tags == {"MACD"}:
-                buckets["只 MACD"].append(info)
+        # ─────── 用 screener 算好的 5 日滑動視窗 confluence buckets（業界共識）───────
+        # 若沒有 confluence_buckets（舊版 Gist）→ fallback 同日 confluence
+        cb = screener_data.get("confluence_buckets", None)
+        if cb is not None:
+            # 新版：5 日滑動視窗，screener 已分好
+            buckets = {
+                "三冠王 (5日內 3 類)": cb.get("triple", []),
+                "中 2 類 (5日內任 2 類)": cb.get("double", []),
+                "只 1 類": cb.get("single", []),
+            }
+        else:
+            # 舊版 fallback：同日 confluence（兼容）
+            tag_map = {}
+            for r in kd_list:
+                k = (r["ticker"], r["trigger_date"])
+                tag_map.setdefault(k, [set(), {}])
+                tag_map[k][0].add("KD")
+                tag_map[k][1].update({"kd_K": r["K"], "kd_D": r["D"]})
+                tag_map[k][1].update({"ticker": r["ticker"], "name": r["name"],
+                                      "current_price": r["current_price"],
+                                      "trigger_date": r["trigger_date"],
+                                      "trigger_close": r["trigger_close"],
+                                      "days_after": r["days_after"],
+                                      "ret_to_today": r["ret_to_today"]})
+            for r in vol_list:
+                k = (r["ticker"], r["trigger_date"])
+                tag_map.setdefault(k, [set(), {}])
+                tag_map[k][0].add("量爆")
+                tag_map[k][1].update({"vol_today": r["vol_today"], "vol_yest": r["vol_yest"],
+                                      "vol_pre": r["vol_pre"],
+                                      "ratio_1": r["ratio_1"], "ratio_2": r["ratio_2"]})
+                tag_map[k][1].update({"ticker": r["ticker"], "name": r["name"],
+                                      "current_price": r["current_price"],
+                                      "trigger_date": r["trigger_date"],
+                                      "trigger_close": r["trigger_close"],
+                                      "days_after": r["days_after"],
+                                      "ret_to_today": r["ret_to_today"]})
+            for r in macd_list:
+                k = (r["ticker"], r["trigger_date"])
+                tag_map.setdefault(k, [set(), {}])
+                tag_map[k][0].add("MACD")
+                tag_map[k][1].update({"macd_type": r["macd_type"], "DIF": r["DIF"],
+                                      "MACD": r["MACD"], "OSC": r["OSC"]})
+                tag_map[k][1].update({"ticker": r["ticker"], "name": r["name"],
+                                      "current_price": r["current_price"],
+                                      "trigger_date": r["trigger_date"],
+                                      "trigger_close": r["trigger_close"],
+                                      "days_after": r["days_after"],
+                                      "ret_to_today": r["ret_to_today"]})
+            buckets = {
+                "三冠王": [],
+                "KD+量爆": [],
+                "KD+MACD": [],
+                "量爆+MACD": [],
+                "只 KD": [],
+                "只 量爆": [],
+                "只 MACD": [],
+            }
+            for k, (tags, info) in tag_map.items():
+                if tags == {"KD", "量爆", "MACD"}: buckets["三冠王"].append(info)
+                elif tags == {"KD", "量爆"}: buckets["KD+量爆"].append(info)
+                elif tags == {"KD", "MACD"}: buckets["KD+MACD"].append(info)
+                elif tags == {"量爆", "MACD"}: buckets["量爆+MACD"].append(info)
+                elif tags == {"KD"}: buckets["只 KD"].append(info)
+                elif tags == {"量爆"}: buckets["只 量爆"].append(info)
+                elif tags == {"MACD"}: buckets["只 MACD"].append(info)
 
         # 算各 bucket 勝率
         def bucket_wr(lst):
@@ -1778,16 +1779,23 @@ with tab4:
         st.markdown("---")
         st.markdown("### 📊 7 個互斥區塊（同一檔同一天只會出現在 1 個區塊）")
         bucket_labels = {
-            "三冠王":     "🌟 三冠王 (KD + 量爆 + MACD)",
-            "KD+量爆":   "💎 KD + 量爆",
-            "KD+MACD":   "💎 KD + MACD",
-            "量爆+MACD": "💎 量爆 + MACD",
+            "三冠王 (5日內 3 類)": "🌟 三冠王 (5日內 KD+量爆+MACD)",
+            "中 2 類 (5日內任 2 類)": "💎 中 2 類 (5日內 2 類觸發)",
+            "只 1 類": "▫️ 只 1 類",
+            "三冠王":     "🌟 三冠王 (同日 KD + 量爆 + MACD)",
+            "KD+量爆":   "💎 同日 KD + 量爆",
+            "KD+MACD":   "💎 同日 KD + MACD",
+            "量爆+MACD": "💎 同日 量爆 + MACD",
             "只 KD":     "🟢 只 KD",
             "只 量爆":   "🟠 只 量爆",
             "只 MACD":   "🔵 只 MACD",
         }
-        cols = st.columns(7)
-        for i, (key, label) in enumerate(bucket_labels.items()):
+        # 只顯示實際有的 bucket（新版 3 個 / 舊版 7 個）
+        active_keys = list(buckets.keys())
+        n_cols = len(active_keys)
+        cols = st.columns(n_cols)
+        for i, key in enumerate(active_keys):
+            label = bucket_labels.get(key, key)
             wr, n_v = bucket_wr(buckets[key])
             with cols[i]:
                 st.metric(
@@ -1836,6 +1844,6 @@ with tab4:
             df_bucket = pd.DataFrame(rows).sort_values("觸發日", ascending=False).reset_index(drop=True)
             st.dataframe(df_bucket, use_container_width=True, hide_index=True, height=min(400, max(150, len(rows) * 38 + 50)))
 
-        # 從強到弱顯示
-        for key in ["三冠王", "KD+量爆", "KD+MACD", "量爆+MACD", "只 KD", "只 量爆", "只 MACD"]:
-            show_bucket(key, bucket_labels[key], buckets[key])
+        # 從強到弱顯示（動態：active_keys 已是順序）
+        for key in active_keys:
+            show_bucket(key, bucket_labels.get(key, key), buckets[key])
