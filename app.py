@@ -1132,17 +1132,23 @@ with tab3:
         # Bug fix: 無論有沒有賣出都顯示訊號日，避免「有持倉但靜默」
         _nd_str = _nd.strftime("%m/%d")
         _d_display = _d_date if _d_date else "（未掃描）"
-        # 判斷今天是否為休市日。兩個條件任一滿足就算休市：
-        # (A) cal_list 不空 AND 今天不在 cal → 國定假日（cal 正確時）
-        # (B) pipeline 今天有跑 AND scan_results.date < 今天 → 今天 pipeline 偵測到沒新交易日（最可靠）
+        # 判斷今天是否為休市日。3 個條件：
+        # (A) 今天是週六/週日 → 必休市（最可靠）
+        # (B) cal_list 有「未來日」（信任度高）AND 今天不在 cal → 國定假日
+        #     ⚠️ 不能只看「不在 cal」，因為 TWSE 盤後才會把今天加進 cal，
+        #     盤中/早盤呼叫時今天不在 cal 不代表休市（5/12 bug 根因）
+        # (C) pipeline 今天有跑 AND scan_results.date < 今天 → pipeline 偵測到沒新交易日
         _today_is_holiday = False
         try:
-            # (A) 日曆判斷
-            _by_cal = bool(_cal_list) and (_today_real not in _cal_list)
-            # (B) pipeline 證據：pipeline 跑完但寫的還是舊日期
+            # (A) 週末判斷（鐵律）
+            _is_weekend = _today_real.weekday() >= 5
+            # (B) 日曆判斷 — 只在 cal_list 含「未來日」才信任（代表 TWSE 已標示假期）
+            _cal_has_future = bool(_cal_list) and any(d > _today_real for d in _cal_list)
+            _by_cal = _cal_has_future and (_today_real not in _cal_list)
+            # (C) pipeline 證據：pipeline 跑完但寫的還是舊日期
             _scan_d_check = date.fromisoformat(_d_date) if _d_date else None
             _by_pipeline = bool(_pipeline_ran_today) and bool(_scan_d_check) and (_scan_d_check < _today_real)
-            _today_is_holiday = _by_cal or _by_pipeline
+            _today_is_holiday = _is_weekend or _by_cal or _by_pipeline
         except Exception:
             _today_is_holiday = False
         # 下個交易日（給休市訊息用）
