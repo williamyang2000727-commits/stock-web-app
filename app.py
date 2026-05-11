@@ -1700,7 +1700,7 @@ with tab4:
 
         st.markdown("### 🎯 推薦今天可進場（只列黃金組合）")
         st.caption(
-            f"💎 **黃金組合（MACD + 量爆 5 日內疊加）— "
+            f"💎 **黃金組合（**同日 MACD AND 量爆 同時觸發**）— "
             f"{golden_hold_data.get('backtest_days', '?')} 天回測實證**："
             f"勝率 **{_best_wr}%** / 平均 {_best_avg}% / 期望值 {_best_exp}% / "
             f"盈虧比 {_best_pl} / {golden_hold_data.get('total_triggers', '?')} 個觸發點"
