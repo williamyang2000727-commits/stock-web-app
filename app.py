@@ -587,7 +587,18 @@ elif _pipeline_ran_today:
     st.success(f"✅ Pipeline 今日 {_pipeline_updated[11:19]} 已跑 — 所有資料對齊 cpu_replay 真公式（全期 {_real_days} 天）")
 
 # ── Tabs ──
-tab0, tab1, tab2, tab3, tab4 = st.tabs([signal_label, "📊 買入排行", "💼 持倉管理", "📋 回測績效", "🔍 篩選器"])
+# 篩選器 Tab 4 只在主策略 Web 顯示（短波段不需要 — 5/12 加）
+# 因為篩選器用主 Data Gist 的 screener_results.json + golden_optimal_hold.json
+# 短波段 Data Gist 沒這兩個檔，顯示會錯亂
+if _IS_SHORT:
+    tab0, tab1, tab2, tab3 = st.tabs([signal_label, "📊 買入排行", "💼 持倉管理", "📋 回測績效"])
+    # tab4 用 empty container 當 placeholder，避免下方 `with tab4:` 報錯
+    # （內容不會渲染因為不在 st.tabs 裡）
+    tab4 = st.container()
+    _tab4_active = False
+else:
+    tab0, tab1, tab2, tab3, tab4 = st.tabs([signal_label, "📊 買入排行", "💼 持倉管理", "📋 回測績效", "🔍 篩選器"])
+    _tab4_active = True
 
 # ══════════════════════════════════════════════════════════════
 # TAB 0: SIGNALS
@@ -1662,369 +1673,370 @@ with tab3:
 # TAB 4: SCREENER（5/12 新增：3 類股票篩選）
 # ══════════════════════════════════════════════════════════════
 with tab4:
-    st.subheader("🔍 股票篩選器")
-    st.caption("過去 22 個交易日內觸發過 3 類技術條件的股票（每天 Windows 16:35 pipeline 自動更新）")
+  if _tab4_active:
+      st.subheader("🔍 股票篩選器")
+      st.caption("過去 22 個交易日內觸發過 3 類技術條件的股票（每天 Windows 16:35 pipeline 自動更新）")
 
-    screener_data = read_gist_file("screener_results.json")
+      screener_data = read_gist_file("screener_results.json")
 
-    # 🚨 資料新鮮度檢查（5/12 加：避免顯示過期資料而不自知）
-    if screener_data:
-        _scr_today = screener_data.get("today", "")
-        _scr_updated = screener_data.get("updated", "")[:10]
-        _today_tw_check = _now_tw_pipe.strftime("%Y-%m-%d") if '_now_tw_pipe' in dir() else date.today().isoformat()
-        if _scr_today and _scr_today != _today_tw_check and _scr_updated != _today_tw_check:
-            st.warning(
-                f"⚠️ **篩選資料是 {_scr_today or _scr_updated} 的（不是今天 {_today_tw_check}）**。"
-                f"Windows 16:35 pipeline 可能還沒跑或失敗。"
-                f"訊號清單可能過期，請等 pipeline 跑完或手動 `python auto_daily_pipeline.py --force`。"
-            )
+      # 🚨 資料新鮮度檢查（5/12 加：避免顯示過期資料而不自知）
+      if screener_data:
+          _scr_today = screener_data.get("today", "")
+          _scr_updated = screener_data.get("updated", "")[:10]
+          _today_tw_check = _now_tw_pipe.strftime("%Y-%m-%d") if '_now_tw_pipe' in dir() else date.today().isoformat()
+          if _scr_today and _scr_today != _today_tw_check and _scr_updated != _today_tw_check:
+              st.warning(
+                  f"⚠️ **篩選資料是 {_scr_today or _scr_updated} 的（不是今天 {_today_tw_check}）**。"
+                  f"Windows 16:35 pipeline 可能還沒跑或失敗。"
+                  f"訊號清單可能過期，請等 pipeline 跑完或手動 `python auto_daily_pipeline.py --force`。"
+              )
 
-    if not screener_data:
-        st.warning("篩選資料尚未產生，等 Windows 16:35 pipeline 第一次跑完即顯示。")
-    else:
-        # 摘要區
-        st.markdown("---")
-        stats = screener_data.get("stats", {})
-        results_data = screener_data.get("results", {})
+      if not screener_data:
+          st.warning("篩選資料尚未產生，等 Windows 16:35 pipeline 第一次跑完即顯示。")
+      else:
+          # 摘要區
+          st.markdown("---")
+          stats = screener_data.get("stats", {})
+          results_data = screener_data.get("results", {})
 
-        # ═══════════════════════════════════════════
-        # 🎯 推薦今天可進場 — 只列黃金組合（勝率最高）
-        # ═══════════════════════════════════════════
-        # 載入最佳 hold（折衷版：勝率+整齊，hold 8-14 天區間找勝率最高）
-        golden_hold_data = read_gist_file("golden_optimal_hold.json") or {}
-        # 優先用折衷版（hold 8-14），fallback 用最高勝率
-        best_hold = (golden_hold_data.get("best_hold_balanced")
-                     or golden_hold_data.get("best_hold_by_wr", 10))
+          # ═══════════════════════════════════════════
+          # 🎯 推薦今天可進場 — 只列黃金組合（勝率最高）
+          # ═══════════════════════════════════════════
+          # 載入最佳 hold（折衷版：勝率+整齊，hold 8-14 天區間找勝率最高）
+          golden_hold_data = read_gist_file("golden_optimal_hold.json") or {}
+          # 優先用折衷版（hold 8-14），fallback 用最高勝率
+          best_hold = (golden_hold_data.get("best_hold_balanced")
+                       or golden_hold_data.get("best_hold_by_wr", 10))
 
-        # 找出該 hold 的完整 perf
-        _best_perf = None
-        for hp in golden_hold_data.get("hold_perf", []):
-            if hp["hold_days"] == best_hold:
-                _best_perf = hp
-                break
-        _best_wr = _best_perf["wr"] if _best_perf else "?"
-        _best_avg = _best_perf["avg_ret"] if _best_perf else "?"
-        _best_exp = _best_perf["expected"] if _best_perf else "?"
-        _best_pl = _best_perf["pl_ratio"] if _best_perf else "?"
+          # 找出該 hold 的完整 perf
+          _best_perf = None
+          for hp in golden_hold_data.get("hold_perf", []):
+              if hp["hold_days"] == best_hold:
+                  _best_perf = hp
+                  break
+          _best_wr = _best_perf["wr"] if _best_perf else "?"
+          _best_avg = _best_perf["avg_ret"] if _best_perf else "?"
+          _best_exp = _best_perf["expected"] if _best_perf else "?"
+          _best_pl = _best_perf["pl_ratio"] if _best_perf else "?"
 
-        # 22 日近期觸發數（純資訊不顯示勝率，避免 7 樣本誤導 + timing 不一致）
-        _golden_stats = stats.get("golden", {}).get("perf", {})
-        _g_n_recent = _golden_stats.get("n", 0)
+          # 22 日近期觸發數（純資訊不顯示勝率，避免 7 樣本誤導 + timing 不一致）
+          _golden_stats = stats.get("golden", {}).get("perf", {})
+          _g_n_recent = _golden_stats.get("n", 0)
 
-        st.markdown("### 🎯 推薦今天可進場（只列黃金組合）")
-        st.caption(
-            f"💎 **黃金組合（**同日 MACD AND 量爆 同時觸發**）— "
-            f"{golden_hold_data.get('backtest_days', '?')} 天回測實證**："
-            f"勝率 **{_best_wr}%** / 平均 {_best_avg}% / 期望值 {_best_exp}% / "
-            f"盈虧比 {_best_pl} / {golden_hold_data.get('total_triggers', '?')} 個觸發點"
-            f"｜ ⭐ **建議 hold = {best_hold} 天**"
-            f"（D+1 收盤前買 → D+{best_hold+1} 開盤賣，對齊主策略 SOP）"
-            f"｜ 📌 過去 22 日內觸發 {_g_n_recent} 檔（顯示在下方表格）"
-        )
+          st.markdown("### 🎯 推薦今天可進場（只列黃金組合）")
+          st.caption(
+              f"💎 **黃金組合（**同日 MACD AND 量爆 同時觸發**）— "
+              f"{golden_hold_data.get('backtest_days', '?')} 天回測實證**："
+              f"勝率 **{_best_wr}%** / 平均 {_best_avg}% / 期望值 {_best_exp}% / "
+              f"盈虧比 {_best_pl} / {golden_hold_data.get('total_triggers', '?')} 個觸發點"
+              f"｜ ⭐ **建議 hold = {best_hold} 天**"
+              f"（D+1 收盤前買 → D+{best_hold+1} 開盤賣，對齊主策略 SOP）"
+              f"｜ 📌 過去 22 日內觸發 {_g_n_recent} 檔（顯示在下方表格）"
+          )
 
-        cb_data = screener_data.get("confluence_buckets", {})
-        golden_all = sorted(cb_data.get("golden", []),
-                            key=lambda x: x.get("days_after", 99))
+          cb_data = screener_data.get("confluence_buckets", {})
+          golden_all = sorted(cb_data.get("golden", []),
+                              key=lambda x: x.get("days_after", 99))
 
-        # 🚨 只列「還在 hold 期內」的 (days_after < best_hold)
-        # 已過 hold 天數的 = 早就該出場，不該顯示在「推薦今天可進場」
-        golden = [r for r in golden_all if r.get("days_after", 99) < best_hold]
-        n_expired = len(golden_all) - len(golden)
+          # 🚨 只列「還在 hold 期內」的 (days_after < best_hold)
+          # 已過 hold 天數的 = 早就該出場，不該顯示在「推薦今天可進場」
+          golden = [r for r in golden_all if r.get("days_after", 99) < best_hold]
+          n_expired = len(golden_all) - len(golden)
 
-        if not golden:
-            st.info(
-                f"過去 {best_hold} 個交易日內無黃金組合觸發 — 今天不進場，等下一天 "
-                f"(總共 {len(golden_all)} 個歷史觸發但都已過 {best_hold} 天 hold 期)"
-            )
-        else:
-            golden_df = pd.DataFrame([{
-                "新鮮度": ("🟢 今天" if r.get("days_after", 99) == 0
-                          else "🟡 昨天" if r.get("days_after", 99) == 1
-                          else f"📅 {r.get('days_after', '?')} 天前"),
-                "股號": r["ticker"].split(".")[0],
-                "公司名": r["name"],
-                "目前價": r["current_price"],
-                "觸發日": r["trigger_date"],
-                "已持有": r.get("days_after", 0),
-                f"⏰ hold 剩餘（最佳{best_hold}天）": best_hold - r.get("days_after", 0),
-                "當天漲幅": f"{r.get('daily_return', 0):+.2f}%" if r.get('daily_return') is not None else "-",
-                "乖離MA20": f"{r.get('bias_MA20', 0):+.1f}%" if r.get('bias_MA20') is not None else "-",
-                "符合類別": " + ".join(r.get("confluence_tags", [])),
-                "浮動報酬": f"{r.get('ret_to_today', 0):+.2f}%",
-            } for r in golden])
-            st.dataframe(golden_df, use_container_width=True, hide_index=True,
-                         height=min(450, len(golden) * 38 + 50))
-            if n_expired > 0:
-                st.caption(f"📌 另有 {n_expired} 個歷史觸發已過 {best_hold} 天 hold 期（不顯示）")
+          if not golden:
+              st.info(
+                  f"過去 {best_hold} 個交易日內無黃金組合觸發 — 今天不進場，等下一天 "
+                  f"(總共 {len(golden_all)} 個歷史觸發但都已過 {best_hold} 天 hold 期)"
+              )
+          else:
+              golden_df = pd.DataFrame([{
+                  "新鮮度": ("🟢 今天" if r.get("days_after", 99) == 0
+                            else "🟡 昨天" if r.get("days_after", 99) == 1
+                            else f"📅 {r.get('days_after', '?')} 天前"),
+                  "股號": r["ticker"].split(".")[0],
+                  "公司名": r["name"],
+                  "目前價": r["current_price"],
+                  "觸發日": r["trigger_date"],
+                  "已持有": r.get("days_after", 0),
+                  f"⏰ hold 剩餘（最佳{best_hold}天）": best_hold - r.get("days_after", 0),
+                  "當天漲幅": f"{r.get('daily_return', 0):+.2f}%" if r.get('daily_return') is not None else "-",
+                  "乖離MA20": f"{r.get('bias_MA20', 0):+.1f}%" if r.get('bias_MA20') is not None else "-",
+                  "符合類別": " + ".join(r.get("confluence_tags", [])),
+                  "浮動報酬": f"{r.get('ret_to_today', 0):+.2f}%",
+              } for r in golden])
+              st.dataframe(golden_df, use_container_width=True, hide_index=True,
+                           height=min(450, len(golden) * 38 + 50))
+              if n_expired > 0:
+                  st.caption(f"📌 另有 {n_expired} 個歷史觸發已過 {best_hold} 天 hold 期（不顯示）")
 
-        n_golden_today = sum(1 for r in golden if r.get("days_after", 99) == 0)
-        n_golden_recent = len(golden)
-        st.success(
-            f"📌 **黃金組合 {n_golden_recent} 檔**（今天剛觸發 {n_golden_today} 檔）｜"
-            f"**下單時機**：明日 13:25 收盤前買（對齊主策略 SOP）｜ "
-            f"**最高勝率 hold**：{best_hold} 天（勝率 {_best_wr}%）｜ "
-            f"**出場**：hold 滿開盤賣"
-        )
+          n_golden_today = sum(1 for r in golden if r.get("days_after", 99) == 0)
+          n_golden_recent = len(golden)
+          st.success(
+              f"📌 **黃金組合 {n_golden_recent} 檔**（今天剛觸發 {n_golden_today} 檔）｜"
+              f"**下單時機**：明日 13:25 收盤前買（對齊主策略 SOP）｜ "
+              f"**最高勝率 hold**：{best_hold} 天（勝率 {_best_wr}%）｜ "
+              f"**出場**：hold 滿開盤賣"
+          )
 
-        # 全期回測 hold 績效表（可展開）
-        if golden_hold_data.get("hold_perf"):
-            _bd = golden_hold_data.get('backtest_days', '?')
-            _maxh = golden_hold_data.get('max_hold_tested', 30)
-            with st.expander(f"📊 {_bd} 天回測：hold 1-{_maxh} 天完整績效（⭐ = 勝率最高 {best_hold} 天）"):
-                hp_rows = []
-                # 排序：勝率高到低（讓你一眼看勝率排名）
-                sorted_hp = sorted(golden_hold_data["hold_perf"], key=lambda x: -x["wr"])
-                for hp in sorted_hp:
-                    is_best = hp["hold_days"] == best_hold
-                    hp_rows.append({
-                        "hold天": ("⭐ " if is_best else "") + str(hp["hold_days"]),
-                        "樣本": hp["n_samples"],
-                        "勝率": f"{hp['wr']:.1f}%",
-                        "平均報酬(扣手續費)": f"{hp['avg_net']:+.2f}%",
-                        "期望值(扣手續費)": f"{hp['expected_net']:+.2f}%",
-                        "盈虧比": f"{hp['pl_ratio']:.2f}",
-                        "最佳/最差": f"{hp['best']:+.1f}% / {hp['worst']:+.1f}%",
-                    })
-                st.dataframe(pd.DataFrame(hp_rows), use_container_width=True, hide_index=True)
-                st.caption("依勝率高到低排序，⭐ = 全期最高勝率 hold 天數")
+          # 全期回測 hold 績效表（可展開）
+          if golden_hold_data.get("hold_perf"):
+              _bd = golden_hold_data.get('backtest_days', '?')
+              _maxh = golden_hold_data.get('max_hold_tested', 30)
+              with st.expander(f"📊 {_bd} 天回測：hold 1-{_maxh} 天完整績效（⭐ = 勝率最高 {best_hold} 天）"):
+                  hp_rows = []
+                  # 排序：勝率高到低（讓你一眼看勝率排名）
+                  sorted_hp = sorted(golden_hold_data["hold_perf"], key=lambda x: -x["wr"])
+                  for hp in sorted_hp:
+                      is_best = hp["hold_days"] == best_hold
+                      hp_rows.append({
+                          "hold天": ("⭐ " if is_best else "") + str(hp["hold_days"]),
+                          "樣本": hp["n_samples"],
+                          "勝率": f"{hp['wr']:.1f}%",
+                          "平均報酬(扣手續費)": f"{hp['avg_net']:+.2f}%",
+                          "期望值(扣手續費)": f"{hp['expected_net']:+.2f}%",
+                          "盈虧比": f"{hp['pl_ratio']:.2f}",
+                          "最佳/最差": f"{hp['best']:+.1f}% / {hp['worst']:+.1f}%",
+                      })
+                  st.dataframe(pd.DataFrame(hp_rows), use_container_width=True, hide_index=True)
+                  st.caption("依勝率高到低排序，⭐ = 全期最高勝率 hold 天數")
 
-        st.markdown("---")
+          st.markdown("---")
 
-        # ─── 完整績效表（報酬率為主，勝率為輔）───
-        st.markdown("##### 📊 各類完整績效（報酬率 + 期望值 + 勝率）")
+          # ─── 完整績效表（報酬率為主，勝率為輔）───
+          st.markdown("##### 📊 各類完整績效（報酬率 + 期望值 + 勝率）")
 
-        def get_perf(stats_key):
-            """兼容新舊版 stats 結構"""
-            v = stats.get(stats_key, {})
-            if "perf" in v:
-                return v["perf"], v.get("triggers", 0)
-            # 舊版只有 win_rate
-            return {"wr": v.get("win_rate", 0), "avg_ret": 0, "expected": 0,
-                    "pl_ratio": 0, "total_ret": 0, "best": 0, "worst": 0,
-                    "n": v.get("valid_samples", 0)}, v.get("triggers", 0)
+          def get_perf(stats_key):
+              """兼容新舊版 stats 結構"""
+              v = stats.get(stats_key, {})
+              if "perf" in v:
+                  return v["perf"], v.get("triggers", 0)
+              # 舊版只有 win_rate
+              return {"wr": v.get("win_rate", 0), "avg_ret": 0, "expected": 0,
+                      "pl_ratio": 0, "total_ret": 0, "best": 0, "worst": 0,
+                      "n": v.get("valid_samples", 0)}, v.get("triggers", 0)
 
-        perf_rows = []
-        for key, label in [
-            ("kd_low", "🟢 KD 低位"),
-            ("volume_burst", "🟠 量價爆發"),
-            ("macd", "🔵 MACD"),
-        ]:
-            p, n_trig = get_perf(key)
-            perf_rows.append({
-                "類別": label,
-                "觸發數": n_trig,
-                "樣本": p.get("n", 0),
-                "勝率": f"{p.get('wr', 0):.1f}%",
-                "平均報酬": f"{p.get('avg_ret', 0):+.2f}%",
-                "💎 期望值": f"{p.get('expected', 0):+.2f}%",
-                "盈虧比": f"{p.get('pl_ratio', 0):.2f}",
-                "總報酬": f"{p.get('total_ret', 0):+.1f}%",
-                "最佳/最差": f"{p.get('best', 0):+.1f}% / {p.get('worst', 0):+.1f}%",
-            })
-        st.dataframe(pd.DataFrame(perf_rows), use_container_width=True, hide_index=True)
+          perf_rows = []
+          for key, label in [
+              ("kd_low", "🟢 KD 低位"),
+              ("volume_burst", "🟠 量價爆發"),
+              ("macd", "🔵 MACD"),
+          ]:
+              p, n_trig = get_perf(key)
+              perf_rows.append({
+                  "類別": label,
+                  "觸發數": n_trig,
+                  "樣本": p.get("n", 0),
+                  "勝率": f"{p.get('wr', 0):.1f}%",
+                  "平均報酬": f"{p.get('avg_ret', 0):+.2f}%",
+                  "💎 期望值": f"{p.get('expected', 0):+.2f}%",
+                  "盈虧比": f"{p.get('pl_ratio', 0):.2f}",
+                  "總報酬": f"{p.get('total_ret', 0):+.1f}%",
+                  "最佳/最差": f"{p.get('best', 0):+.1f}% / {p.get('worst', 0):+.1f}%",
+              })
+          st.dataframe(pd.DataFrame(perf_rows), use_container_width=True, hide_index=True)
 
-        st.caption(
-            f"💡 **期望值 > 0 = 長期能賺錢**（最重要的指標，比勝率更有意義）｜"
-            f"**盈虧比 > 1.5 = 賺多虧少** ｜ "
-            f"⏰ {screener_data.get('updated', '?')} ｜ "
-            f"📅 cache 末日：{screener_data.get('today', '?')} ｜ "
-            f"🔁 回顧期：{screener_data.get('lookback_days', 22)} 日 ｜ "
-            f"📉 日均量 ≥ {screener_data.get('min_volume_lots', 2000)} 張"
-        )
+          st.caption(
+              f"💡 **期望值 > 0 = 長期能賺錢**（最重要的指標，比勝率更有意義）｜"
+              f"**盈虧比 > 1.5 = 賺多虧少** ｜ "
+              f"⏰ {screener_data.get('updated', '?')} ｜ "
+              f"📅 cache 末日：{screener_data.get('today', '?')} ｜ "
+              f"🔁 回顧期：{screener_data.get('lookback_days', 22)} 日 ｜ "
+              f"📉 日均量 ≥ {screener_data.get('min_volume_lots', 2000)} 張"
+          )
 
-        results = screener_data.get("results", {})
-        kd_list = results.get("kd_low", [])
-        vol_list = results.get("volume_burst", [])
-        macd_list = results.get("macd", [])
+          results = screener_data.get("results", {})
+          kd_list = results.get("kd_low", [])
+          vol_list = results.get("volume_burst", [])
+          macd_list = results.get("macd", [])
 
-        # ─────── 用 screener 算好的加權 confluence buckets（業界共識，KD 不算）───────
-        # 若沒有 confluence_buckets（舊版 Gist）→ fallback 同日 confluence
-        cb = screener_data.get("confluence_buckets", None)
-        if cb is not None and "golden" in cb:
-            # 新版：MACD+量爆 黃金組合 + KD 純參考
-            buckets = {
-                "🌟 黃金組合 (MACD + 量爆 5 日內)": cb.get("golden", []),
-                "🔵 只 MACD": cb.get("macd_only", []),
-                "🟠 只 量爆": cb.get("vol_only", []),
-                "📌 KD 低位 (僅參考，業界平均 46-50%)": cb.get("kd_reference", []),
-            }
-        elif cb is not None and "triple" in cb:
-            # 中間版（5/12 早 commit 117beb9）：3 類滑動視窗
-            buckets = {
-                "三冠王 (5日內 3 類)": cb.get("triple", []),
-                "中 2 類 (5日內任 2 類)": cb.get("double", []),
-                "只 1 類": cb.get("single", []),
-            }
-        else:
-            # 舊版 fallback：同日 confluence（兼容）
-            tag_map = {}
-            for r in kd_list:
-                k = (r["ticker"], r["trigger_date"])
-                tag_map.setdefault(k, [set(), {}])
-                tag_map[k][0].add("KD")
-                tag_map[k][1].update({"kd_K": r["K"], "kd_D": r["D"]})
-                tag_map[k][1].update({"ticker": r["ticker"], "name": r["name"],
-                                      "current_price": r["current_price"],
-                                      "trigger_date": r["trigger_date"],
-                                      "trigger_close": r["trigger_close"],
-                                      "days_after": r["days_after"],
-                                      "ret_to_today": r["ret_to_today"]})
-            for r in vol_list:
-                k = (r["ticker"], r["trigger_date"])
-                tag_map.setdefault(k, [set(), {}])
-                tag_map[k][0].add("量爆")
-                tag_map[k][1].update({"vol_today": r["vol_today"], "vol_yest": r["vol_yest"],
-                                      "vol_pre": r["vol_pre"],
-                                      "ratio_1": r["ratio_1"], "ratio_2": r["ratio_2"]})
-                tag_map[k][1].update({"ticker": r["ticker"], "name": r["name"],
-                                      "current_price": r["current_price"],
-                                      "trigger_date": r["trigger_date"],
-                                      "trigger_close": r["trigger_close"],
-                                      "days_after": r["days_after"],
-                                      "ret_to_today": r["ret_to_today"]})
-            for r in macd_list:
-                k = (r["ticker"], r["trigger_date"])
-                tag_map.setdefault(k, [set(), {}])
-                tag_map[k][0].add("MACD")
-                tag_map[k][1].update({"macd_type": r["macd_type"], "DIF": r["DIF"],
-                                      "MACD": r["MACD"], "OSC": r["OSC"]})
-                tag_map[k][1].update({"ticker": r["ticker"], "name": r["name"],
-                                      "current_price": r["current_price"],
-                                      "trigger_date": r["trigger_date"],
-                                      "trigger_close": r["trigger_close"],
-                                      "days_after": r["days_after"],
-                                      "ret_to_today": r["ret_to_today"]})
-            buckets = {
-                "三冠王": [],
-                "KD+量爆": [],
-                "KD+MACD": [],
-                "量爆+MACD": [],
-                "只 KD": [],
-                "只 量爆": [],
-                "只 MACD": [],
-            }
-            for k, (tags, info) in tag_map.items():
-                if tags == {"KD", "量爆", "MACD"}: buckets["三冠王"].append(info)
-                elif tags == {"KD", "量爆"}: buckets["KD+量爆"].append(info)
-                elif tags == {"KD", "MACD"}: buckets["KD+MACD"].append(info)
-                elif tags == {"量爆", "MACD"}: buckets["量爆+MACD"].append(info)
-                elif tags == {"KD"}: buckets["只 KD"].append(info)
-                elif tags == {"量爆"}: buckets["只 量爆"].append(info)
-                elif tags == {"MACD"}: buckets["只 MACD"].append(info)
+          # ─────── 用 screener 算好的加權 confluence buckets（業界共識，KD 不算）───────
+          # 若沒有 confluence_buckets（舊版 Gist）→ fallback 同日 confluence
+          cb = screener_data.get("confluence_buckets", None)
+          if cb is not None and "golden" in cb:
+              # 新版：MACD+量爆 黃金組合 + KD 純參考
+              buckets = {
+                  "🌟 黃金組合 (MACD + 量爆 5 日內)": cb.get("golden", []),
+                  "🔵 只 MACD": cb.get("macd_only", []),
+                  "🟠 只 量爆": cb.get("vol_only", []),
+                  "📌 KD 低位 (僅參考，業界平均 46-50%)": cb.get("kd_reference", []),
+              }
+          elif cb is not None and "triple" in cb:
+              # 中間版（5/12 早 commit 117beb9）：3 類滑動視窗
+              buckets = {
+                  "三冠王 (5日內 3 類)": cb.get("triple", []),
+                  "中 2 類 (5日內任 2 類)": cb.get("double", []),
+                  "只 1 類": cb.get("single", []),
+              }
+          else:
+              # 舊版 fallback：同日 confluence（兼容）
+              tag_map = {}
+              for r in kd_list:
+                  k = (r["ticker"], r["trigger_date"])
+                  tag_map.setdefault(k, [set(), {}])
+                  tag_map[k][0].add("KD")
+                  tag_map[k][1].update({"kd_K": r["K"], "kd_D": r["D"]})
+                  tag_map[k][1].update({"ticker": r["ticker"], "name": r["name"],
+                                        "current_price": r["current_price"],
+                                        "trigger_date": r["trigger_date"],
+                                        "trigger_close": r["trigger_close"],
+                                        "days_after": r["days_after"],
+                                        "ret_to_today": r["ret_to_today"]})
+              for r in vol_list:
+                  k = (r["ticker"], r["trigger_date"])
+                  tag_map.setdefault(k, [set(), {}])
+                  tag_map[k][0].add("量爆")
+                  tag_map[k][1].update({"vol_today": r["vol_today"], "vol_yest": r["vol_yest"],
+                                        "vol_pre": r["vol_pre"],
+                                        "ratio_1": r["ratio_1"], "ratio_2": r["ratio_2"]})
+                  tag_map[k][1].update({"ticker": r["ticker"], "name": r["name"],
+                                        "current_price": r["current_price"],
+                                        "trigger_date": r["trigger_date"],
+                                        "trigger_close": r["trigger_close"],
+                                        "days_after": r["days_after"],
+                                        "ret_to_today": r["ret_to_today"]})
+              for r in macd_list:
+                  k = (r["ticker"], r["trigger_date"])
+                  tag_map.setdefault(k, [set(), {}])
+                  tag_map[k][0].add("MACD")
+                  tag_map[k][1].update({"macd_type": r["macd_type"], "DIF": r["DIF"],
+                                        "MACD": r["MACD"], "OSC": r["OSC"]})
+                  tag_map[k][1].update({"ticker": r["ticker"], "name": r["name"],
+                                        "current_price": r["current_price"],
+                                        "trigger_date": r["trigger_date"],
+                                        "trigger_close": r["trigger_close"],
+                                        "days_after": r["days_after"],
+                                        "ret_to_today": r["ret_to_today"]})
+              buckets = {
+                  "三冠王": [],
+                  "KD+量爆": [],
+                  "KD+MACD": [],
+                  "量爆+MACD": [],
+                  "只 KD": [],
+                  "只 量爆": [],
+                  "只 MACD": [],
+              }
+              for k, (tags, info) in tag_map.items():
+                  if tags == {"KD", "量爆", "MACD"}: buckets["三冠王"].append(info)
+                  elif tags == {"KD", "量爆"}: buckets["KD+量爆"].append(info)
+                  elif tags == {"KD", "MACD"}: buckets["KD+MACD"].append(info)
+                  elif tags == {"量爆", "MACD"}: buckets["量爆+MACD"].append(info)
+                  elif tags == {"KD"}: buckets["只 KD"].append(info)
+                  elif tags == {"量爆"}: buckets["只 量爆"].append(info)
+                  elif tags == {"MACD"}: buckets["只 MACD"].append(info)
 
-        # 算各 bucket 完整績效（勝率 + 平均報酬 + 期望值 + 盈虧比）
-        def bucket_perf(lst):
-            valid = [r for r in lst if r.get("days_after", 0) >= 1]
-            n = len(valid)
-            if n == 0:
-                return {"n": 0, "wr": 0.0, "avg_ret": 0.0, "expected": 0.0,
-                        "pl_ratio": 0.0, "total_ret": 0.0, "best": 0.0, "worst": 0.0}
-            rets = [r.get("ret_to_today", 0) for r in valid]
-            wins = [r for r in rets if r > 0]
-            losses = [r for r in rets if r <= 0]
-            avg_ret = sum(rets) / n
-            wr = len(wins) / n * 100
-            avg_win = sum(wins) / len(wins) if wins else 0
-            avg_loss = sum(losses) / len(losses) if losses else 0
-            pl_ratio = abs(avg_win / avg_loss) if avg_loss != 0 else 0
-            expected = (wr / 100) * avg_win + (1 - wr / 100) * avg_loss
-            return {"n": n, "wr": round(wr, 1), "avg_ret": round(avg_ret, 2),
-                    "expected": round(expected, 2), "pl_ratio": round(pl_ratio, 2),
-                    "total_ret": round(sum(rets), 1),
-                    "best": round(max(rets), 2), "worst": round(min(rets), 2)}
+          # 算各 bucket 完整績效（勝率 + 平均報酬 + 期望值 + 盈虧比）
+          def bucket_perf(lst):
+              valid = [r for r in lst if r.get("days_after", 0) >= 1]
+              n = len(valid)
+              if n == 0:
+                  return {"n": 0, "wr": 0.0, "avg_ret": 0.0, "expected": 0.0,
+                          "pl_ratio": 0.0, "total_ret": 0.0, "best": 0.0, "worst": 0.0}
+              rets = [r.get("ret_to_today", 0) for r in valid]
+              wins = [r for r in rets if r > 0]
+              losses = [r for r in rets if r <= 0]
+              avg_ret = sum(rets) / n
+              wr = len(wins) / n * 100
+              avg_win = sum(wins) / len(wins) if wins else 0
+              avg_loss = sum(losses) / len(losses) if losses else 0
+              pl_ratio = abs(avg_win / avg_loss) if avg_loss != 0 else 0
+              expected = (wr / 100) * avg_win + (1 - wr / 100) * avg_loss
+              return {"n": n, "wr": round(wr, 1), "avg_ret": round(avg_ret, 2),
+                      "expected": round(expected, 2), "pl_ratio": round(pl_ratio, 2),
+                      "total_ret": round(sum(rets), 1),
+                      "best": round(max(rets), 2), "worst": round(min(rets), 2)}
 
-        def bucket_wr(lst):
-            p = bucket_perf(lst)
-            return p["wr"], p["n"]
+          def bucket_wr(lst):
+              p = bucket_perf(lst)
+              return p["wr"], p["n"]
 
-        # ─── 摘要區：7 個區塊 + 各自勝率 ───
-        st.markdown("---")
-        st.markdown("### 📊 7 個互斥區塊（同一檔同一天只會出現在 1 個區塊）")
-        bucket_labels = {
-            # 新版加權 confluence labels (MACD+量爆 黃金組合)
-            "🌟 黃金組合 (MACD + 量爆 5 日內)": "🌟 黃金組合",
-            "🔵 只 MACD": "🔵 只 MACD",
-            "🟠 只 量爆": "🟠 只 量爆",
-            "📌 KD 低位 (僅參考，業界平均 46-50%)": "📌 KD 參考",
-            # 中間版 labels
-            "三冠王 (5日內 3 類)": "🌟 三冠王 (5日內 KD+量爆+MACD)",
-            "中 2 類 (5日內任 2 類)": "💎 中 2 類 (5日內 2 類觸發)",
-            "只 1 類": "▫️ 只 1 類",
-            "三冠王":     "🌟 三冠王 (同日 KD + 量爆 + MACD)",
-            "KD+量爆":   "💎 同日 KD + 量爆",
-            "KD+MACD":   "💎 同日 KD + MACD",
-            "量爆+MACD": "💎 同日 量爆 + MACD",
-            "只 KD":     "🟢 只 KD",
-            "只 量爆":   "🟠 只 量爆",
-            "只 MACD":   "🔵 只 MACD",
-        }
-        # ─── Confluence buckets 完整績效表 ───
-        active_keys = list(buckets.keys())
-        bucket_perf_rows = []
-        for key in active_keys:
-            label = bucket_labels.get(key, key)
-            p = bucket_perf(buckets[key])
-            bucket_perf_rows.append({
-                "區塊": label,
-                "檔數": len(buckets[key]),
-                "樣本": p["n"],
-                "勝率": f"{p['wr']:.1f}%",
-                "平均報酬": f"{p['avg_ret']:+.2f}%",
-                "💎 期望值": f"{p['expected']:+.2f}%",
-                "盈虧比": f"{p['pl_ratio']:.2f}",
-                "總報酬": f"{p['total_ret']:+.1f}%",
-                "最佳/最差": f"{p['best']:+.1f}% / {p['worst']:+.1f}%",
-            })
-        st.dataframe(pd.DataFrame(bucket_perf_rows), use_container_width=True, hide_index=True)
-        st.caption("💎 **期望值 > 0 = 長期能賺錢**（最重要）｜盈虧比 > 1.5 = 賺得比虧得多")
+          # ─── 摘要區：7 個區塊 + 各自勝率 ───
+          st.markdown("---")
+          st.markdown("### 📊 7 個互斥區塊（同一檔同一天只會出現在 1 個區塊）")
+          bucket_labels = {
+              # 新版加權 confluence labels (MACD+量爆 黃金組合)
+              "🌟 黃金組合 (MACD + 量爆 5 日內)": "🌟 黃金組合",
+              "🔵 只 MACD": "🔵 只 MACD",
+              "🟠 只 量爆": "🟠 只 量爆",
+              "📌 KD 低位 (僅參考，業界平均 46-50%)": "📌 KD 參考",
+              # 中間版 labels
+              "三冠王 (5日內 3 類)": "🌟 三冠王 (5日內 KD+量爆+MACD)",
+              "中 2 類 (5日內任 2 類)": "💎 中 2 類 (5日內 2 類觸發)",
+              "只 1 類": "▫️ 只 1 類",
+              "三冠王":     "🌟 三冠王 (同日 KD + 量爆 + MACD)",
+              "KD+量爆":   "💎 同日 KD + 量爆",
+              "KD+MACD":   "💎 同日 KD + MACD",
+              "量爆+MACD": "💎 同日 量爆 + MACD",
+              "只 KD":     "🟢 只 KD",
+              "只 量爆":   "🟠 只 量爆",
+              "只 MACD":   "🔵 只 MACD",
+          }
+          # ─── Confluence buckets 完整績效表 ───
+          active_keys = list(buckets.keys())
+          bucket_perf_rows = []
+          for key in active_keys:
+              label = bucket_labels.get(key, key)
+              p = bucket_perf(buckets[key])
+              bucket_perf_rows.append({
+                  "區塊": label,
+                  "檔數": len(buckets[key]),
+                  "樣本": p["n"],
+                  "勝率": f"{p['wr']:.1f}%",
+                  "平均報酬": f"{p['avg_ret']:+.2f}%",
+                  "💎 期望值": f"{p['expected']:+.2f}%",
+                  "盈虧比": f"{p['pl_ratio']:.2f}",
+                  "總報酬": f"{p['total_ret']:+.1f}%",
+                  "最佳/最差": f"{p['best']:+.1f}% / {p['worst']:+.1f}%",
+              })
+          st.dataframe(pd.DataFrame(bucket_perf_rows), use_container_width=True, hide_index=True)
+          st.caption("💎 **期望值 > 0 = 長期能賺錢**（最重要）｜盈虧比 > 1.5 = 賺得比虧得多")
 
-        # ─── 各區塊清單（從強到弱）───
-        def show_bucket(name, label, infos):
-            st.markdown("---")
-            p = bucket_perf(infos)
-            st.markdown(
-                f"### {label}  ｜  **{len(infos)} 個觸發** ｜ "
-                f"💎 期望值 **{p['expected']:+.2f}%** ｜ "
-                f"平均 {p['avg_ret']:+.2f}% ｜ "
-                f"勝率 {p['wr']:.1f}% ｜ "
-                f"盈虧比 {p['pl_ratio']:.2f} ｜ "
-                f"樣本 {p['n']}"
-            )
-            if not infos:
-                st.info("過去 22 日無觸發")
-                return
-            rows = []
-            for r in infos:
-                row = {
-                    "股號": r["ticker"].split(".")[0],
-                    "公司名": r["name"],
-                    "目前價": r["current_price"],
-                    "觸發日": r["trigger_date"],
-                    "觸發收盤": r["trigger_close"],
-                }
-                # 加 KD 欄
-                if "kd_K" in r:
-                    row["K"] = r["kd_K"]
-                    row["D"] = r["kd_D"]
-                # 加量爆欄
-                if "vol_today" in r:
-                    row["前→昨→今(張)"] = f"{r['vol_pre']}→{r['vol_yest']}→{r['vol_today']}"
-                    row["今/昨"] = f"{r['ratio_1']}x"
-                    row["昨/前"] = f"{r['ratio_2']}x"
-                # 加 MACD 欄
-                if "macd_type" in r:
-                    row["MACD類型"] = r["macd_type"]
-                    row["DIF"] = r["DIF"]
-                    row["MACD"] = r["MACD"]
-                    row["OSC"] = r["OSC"]
-                row["距今"] = r["days_after"]
-                row["剩餘天數"] = r.get("days_to_expire", "?")
-                row["浮動報酬%"] = f"{r['ret_to_today']:+.2f}%"
-                row["贏輸"] = "🟢 贏" if r["ret_to_today"] > 0 else ("🔴 輸" if r["days_after"] >= 1 else "⏳ 當日")
-                rows.append(row)
-            df_bucket = pd.DataFrame(rows).sort_values("觸發日", ascending=False).reset_index(drop=True)
-            st.dataframe(df_bucket, use_container_width=True, hide_index=True, height=min(400, max(150, len(rows) * 38 + 50)))
+          # ─── 各區塊清單（從強到弱）───
+          def show_bucket(name, label, infos):
+              st.markdown("---")
+              p = bucket_perf(infos)
+              st.markdown(
+                  f"### {label}  ｜  **{len(infos)} 個觸發** ｜ "
+                  f"💎 期望值 **{p['expected']:+.2f}%** ｜ "
+                  f"平均 {p['avg_ret']:+.2f}% ｜ "
+                  f"勝率 {p['wr']:.1f}% ｜ "
+                  f"盈虧比 {p['pl_ratio']:.2f} ｜ "
+                  f"樣本 {p['n']}"
+              )
+              if not infos:
+                  st.info("過去 22 日無觸發")
+                  return
+              rows = []
+              for r in infos:
+                  row = {
+                      "股號": r["ticker"].split(".")[0],
+                      "公司名": r["name"],
+                      "目前價": r["current_price"],
+                      "觸發日": r["trigger_date"],
+                      "觸發收盤": r["trigger_close"],
+                  }
+                  # 加 KD 欄
+                  if "kd_K" in r:
+                      row["K"] = r["kd_K"]
+                      row["D"] = r["kd_D"]
+                  # 加量爆欄
+                  if "vol_today" in r:
+                      row["前→昨→今(張)"] = f"{r['vol_pre']}→{r['vol_yest']}→{r['vol_today']}"
+                      row["今/昨"] = f"{r['ratio_1']}x"
+                      row["昨/前"] = f"{r['ratio_2']}x"
+                  # 加 MACD 欄
+                  if "macd_type" in r:
+                      row["MACD類型"] = r["macd_type"]
+                      row["DIF"] = r["DIF"]
+                      row["MACD"] = r["MACD"]
+                      row["OSC"] = r["OSC"]
+                  row["距今"] = r["days_after"]
+                  row["剩餘天數"] = r.get("days_to_expire", "?")
+                  row["浮動報酬%"] = f"{r['ret_to_today']:+.2f}%"
+                  row["贏輸"] = "🟢 贏" if r["ret_to_today"] > 0 else ("🔴 輸" if r["days_after"] >= 1 else "⏳ 當日")
+                  rows.append(row)
+              df_bucket = pd.DataFrame(rows).sort_values("觸發日", ascending=False).reset_index(drop=True)
+              st.dataframe(df_bucket, use_container_width=True, hide_index=True, height=min(400, max(150, len(rows) * 38 + 50)))
 
-        # 從強到弱顯示（動態：active_keys 已是順序）
-        for key in active_keys:
-            show_bucket(key, bucket_labels.get(key, key), buckets[key])
+          # 從強到弱顯示（動態：active_keys 已是順序）
+          for key in active_keys:
+              show_bucket(key, bucket_labels.get(key, key), buckets[key])
