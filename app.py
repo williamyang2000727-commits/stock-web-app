@@ -1747,8 +1747,9 @@ with tab4:
         n_golden_recent = len(golden)
         st.success(
             f"📌 **黃金組合 {n_golden_recent} 檔**（今天剛觸發 {n_golden_today} 檔）｜"
-            f"**下單時機**：明日 09:00 開盤前 ｜ "
-            f"**最高勝率 hold**：{best_hold} 天（勝率 {_best_wr}%）"
+            f"**下單時機**：明日 13:25 收盤前買（對齊主策略 SOP）｜ "
+            f"**最高勝率 hold**：{best_hold} 天（勝率 {_best_wr}%）｜ "
+            f"**出場**：hold 滿開盤賣"
         )
 
         # 全期回測 hold 績效表（可展開）
