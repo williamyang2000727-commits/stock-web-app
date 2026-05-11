@@ -1671,9 +1671,11 @@ with tab4:
         # ═══════════════════════════════════════════
         # 🎯 推薦今天可進場 — 只列黃金組合（勝率最高）
         # ═══════════════════════════════════════════
-        # 載入最佳 hold（全期回測，勝率最高優先）
+        # 載入最佳 hold（折衷版：勝率+整齊，hold 8-14 天區間找勝率最高）
         golden_hold_data = read_gist_file("golden_optimal_hold.json") or {}
-        best_hold = golden_hold_data.get("best_hold_by_wr", 10)  # 勝率最高（用戶 5/12 要求）
+        # 優先用折衷版（hold 8-14），fallback 用最高勝率
+        best_hold = (golden_hold_data.get("best_hold_balanced")
+                     or golden_hold_data.get("best_hold_by_wr", 10))
 
         # 找出該 hold 的勝率
         _best_perf = None
@@ -1682,6 +1684,7 @@ with tab4:
                 _best_perf = hp
                 break
         _best_wr = _best_perf["wr"] if _best_perf else "?"
+        _best_avg = _best_perf["avg_ret"] if _best_perf else "?"
 
         # 從 screener stats 動態抓 22 日內黃金組合績效
         _golden_stats = stats.get("golden", {}).get("perf", {})
@@ -1690,12 +1693,13 @@ with tab4:
         _g_pl = _golden_stats.get("pl_ratio", "?")
         _g_n = _golden_stats.get("n", "?")
 
-        st.markdown("### 🎯 推薦今天可進場（只列黃金組合 — 勝率最高）")
+        st.markdown("### 🎯 推薦今天可進場（只列黃金組合 — 折衷勝率+整齊）")
         st.caption(
             f"💎 **黃金組合（MACD + 量爆 5 日內疊加）— 過去 22 個交易日內實測**："
             f"勝率 **{_g_wr}%** / 期望值 {_g_ev}% / 盈虧比 {_g_pl} ({_g_n} 個樣本)"
-            f"｜ ⭐ **{golden_hold_data.get('backtest_days', '?')} 天全期回測：最高勝率 hold = {best_hold} 天 ({_best_wr}%)**"
-            f"（{golden_hold_data.get('total_triggers', '?')} 個觸發點驗證）"
+            f"｜ ⭐ **{golden_hold_data.get('backtest_days', '?')} 天回測：建議 hold = {best_hold} 天**"
+            f"（勝率 {_best_wr}% / 平均報酬 {_best_avg}% / "
+            f"{golden_hold_data.get('total_triggers', '?')} 個觸發點驗證）"
         )
 
         cb_data = screener_data.get("confluence_buckets", {})
