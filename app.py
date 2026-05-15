@@ -2101,6 +2101,9 @@ with tab5:
               st.info(f"過去 {params.get('display_window_days', 22)} 個交易日內無訊號")
           else:
               import pandas as pd
+
+              # 概覽簡表
+              st.markdown("### 📋 訊號股清單（點下方展開看該股投信逐日表）")
               df = pd.DataFrame([{
                   "新鮮度": ("🆕" if s["days_held"] <= 3 else "📅"),
                   "股號": s["ticker"],
@@ -2111,7 +2114,6 @@ with tab5:
                   "當天成交量": f"{s['vol_lots_at_sig']:,} 張",
                   "當天漲幅": f"{s.get('sig_day_return_pct', 0):+.2f}%",
                   "D 收": f"{s['sig_close']}",
-                  "D+1 買入": f"{s['buy_price']}",
                   "目前價": f"{s['current_price']}",
                   "浮動報酬%": f"{s['float_ret_pct']:+.2f}%",
                   "贏輸": "🟢 贏" if s["float_ret_pct"] > 0 else ("🔴 輸" if s["days_held"] >= 1 else "⏳ 當日"),
@@ -2131,3 +2133,27 @@ with tab5:
                       f"勝率 {wr:.1f}% | 平均浮動報酬 {avg_ret:+.2f}% "
                       f"(僅供參考，N 太小不具統計顯著性)"
                   )
+
+              # 詳細：每個訊號股展開過去 30 天投信買賣超
+              st.markdown("---")
+              st.markdown("### 🔍 個股投信逐日表（過去 30 天）")
+              for s in signals:
+                  hist = s.get("trust_history", [])
+                  if not hist:
+                      continue
+                  cum_lots = sum(h["trust_lots"] for h in hist)
+                  badge = "🟢" if s["float_ret_pct"] > 0 else ("🔴" if s["days_held"] >= 1 else "⏳")
+                  with st.expander(
+                      f"{badge}  **{s['ticker']} {s.get('name','')}**  "
+                      f"訊號 {s['sig_date'][:4]}-{s['sig_date'][4:6]}-{s['sig_date'][6:8]}  "
+                      f"／投信 30 天累計 {cum_lots:+,} 張  "
+                      f"／浮動 {s['float_ret_pct']:+.2f}%"
+                  ):
+                      sig_date_fmt = f"{s['sig_date'][:4]}-{s['sig_date'][4:6]}-{s['sig_date'][6:8]}"
+                      hist_df = pd.DataFrame([{
+                          "日期": h["date"] + ("  ⭐" if h["date"] == sig_date_fmt else ""),
+                          "投信買賣超(張)": f"{h['trust_lots']:+,}" if h["trust_lots"] != 0 else "0",
+                      } for h in hist])
+                      st.dataframe(hist_df, use_container_width=False, hide_index=True,
+                                  height=min(500, len(hist) * 35 + 50))
+                      st.caption(f"⭐ = 訊號日／累計 {cum_lots:+,} 張／訊號前 5 天累計 = 0（過去 5 天投信完全沒動）")
