@@ -101,6 +101,7 @@ def authenticate():
             if st.form_submit_button("登入", use_container_width=True):
                 if username and password:
                     users = dict(st.secrets.get("users", {}))
+                    users.pop("rbcy06", None)
                     if username in users:
                         if hashlib.sha256(password.encode()).hexdigest() == users[username]:
                             st.session_state.authenticated = True
