@@ -2218,6 +2218,43 @@ with tab6:
                   } for i, r in enumerate(top10)])
                   st.dataframe(df_top, use_container_width=True, hide_index=True, height=420)
 
+          # 累計次數榜（你最初要的）
+          st.markdown("### 🥇 累計「當日第 1 名」次數榜（只算漲幅>0 那天才算強勢）")
+          col_a, col_b = st.columns(2)
+
+          cum_5d = theme_data.get("cumulative_top1_5d", [])
+          cum_22d = theme_data.get("cumulative_top1_22d", [])
+
+          with col_a:
+              st.markdown("**過去 5 天**")
+              if cum_5d:
+                  import pandas as pd
+                  df5 = pd.DataFrame([{
+                      "排名": f"#{i+1}",
+                      "題材": r["theme"],
+                      "次數": f"{r['count']}/5",
+                      "最後當第 1": r.get("last_top1_date") or "—",
+                  } for i, r in enumerate(cum_5d)])
+                  st.dataframe(df5, use_container_width=True, hide_index=True,
+                              height=min(400, len(cum_5d) * 38 + 50))
+              else:
+                  st.caption("（5 天內無強勢題材）")
+
+          with col_b:
+              st.markdown("**過去 22 天**")
+              if cum_22d:
+                  import pandas as pd
+                  df22 = pd.DataFrame([{
+                      "排名": f"#{i+1}",
+                      "題材": r["theme"],
+                      "次數": f"{r['count']}/22",
+                      "最後當第 1": r.get("last_top1_date") or "—",
+                  } for i, r in enumerate(cum_22d)])
+                  st.dataframe(df22, use_container_width=True, hide_index=True,
+                              height=min(400, len(cum_22d) * 38 + 50))
+              else:
+                  st.caption("（22 天內無強勢題材）")
+
           # 過去 5 天每天 Top 5
           st.markdown(f"### 📅 過去 5 天每日 Top 5（看輪動）")
           if daily_top5:
