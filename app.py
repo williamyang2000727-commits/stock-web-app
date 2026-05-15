@@ -2167,76 +2167,71 @@ with tab5:
 # ══════════════════════════════════════════════════════════════
 with tab6:
   if _tab6_active:
-      st.subheader("🔥 題材成交額熱度榜")
-      st.caption("過去 22 個交易日，每天計算各題材總成交額，累計「進前 3 名次數」= 熱度分數（每天 pipeline 自動更新）")
+      st.subheader("🔥 題材熱度榜")
+      st.caption("熱度 = sqrt(成交額倍率 × 漲幅中位數)。爆量 + 漲價 = 真實題材輪動")
 
       theme_data = read_gist_file("theme_screener_results.json")
       if not theme_data:
-          st.info("還沒有資料 — 等明天 16:35 pipeline Step 9 跑完會自動更新（或 Windows 手動跑 `python screener_themes.py`）")
+          st.info("還沒有資料 — 等明天 pipeline Step 9 自動更新（或 Windows 手動跑 `python screener_themes.py`）")
       else:
           updated = theme_data.get("updated", "?")
           today = theme_data.get("today", "?")
-          ranking = theme_data.get("score_ranking", [])
-          today_top5 = theme_data.get("today_top5", [])
-          top1_timeline = theme_data.get("top1_timeline", [])
+          today_ranking = theme_data.get("today_ranking", [])
+          daily_top5 = theme_data.get("daily_top5", {})
           window = theme_data.get("window_days", 22)
+          baseline = theme_data.get("baseline_days", 10)
 
           c1, c2, c3, c4 = st.columns(4)
-          c1.metric("題材總數", f"{theme_data.get('theme_count', 0)} 個")
+          c1.metric("題材總數", f"{theme_data.get('theme_count', 0)}")
           c2.metric("資料末日", today)
-          c3.metric("更新時間", updated[:16] if updated != "?" else "?")
-          c4.metric("窗口", f"{window} 個交易日")
+          c3.metric("更新", updated[:16] if updated != "?" else "?")
+          c4.metric("基期", f"{baseline} 日均")
 
-          # 今日 Top 5
-          st.markdown("### 🏆 今日 Top 5 題材（成交額）")
-          if today_top5:
+          st.caption(f"📐 {theme_data.get('metric_desc', '')}")
+
+          # 今日 Top 10
+          st.markdown(f"### 🏆 今日 ({today}) Top 10 熱題材")
+          if today_ranking:
               import pandas as pd
-              df_today = pd.DataFrame([{
+              top10 = today_ranking[:10]
+              df_top = pd.DataFrame([{
                   "排名": f"#{r['rank']}",
                   "題材": r["theme"],
-                  "成交額(億)": f"{r['amount_ntd'] / 1e8:,.2f}",
-              } for r in today_top5])
-              st.dataframe(df_today, use_container_width=True, hide_index=True, height=220)
+                  "熱度": f"{r['heat']:.2f}",
+                  "成交額倍率": f"{r['amount_ratio']:.2f}x",
+                  "漲幅中位": f"{r['return_pct_median']:+.2f}%",
+                  "成交額(億)": f"{r['amount_ntd'] / 1e8:,.1f}",
+                  "成分股": r.get('n_stocks_traded', 0),
+              } for r in top10])
+              st.dataframe(df_top, use_container_width=True, hide_index=True, height=420)
 
-          # 熱度排行（過去 22 天進前 3 累計）
-          st.markdown(f"### 🔥 熱度排行（過去 {window} 個交易日進前 3 累計次數）")
-          if ranking:
+          # 過去 5 天每天 Top 5
+          st.markdown(f"### 📅 過去 5 天每日 Top 5（看輪動）")
+          if daily_top5:
               import pandas as pd
-              # 只顯示分數 > 0 的
-              positive = [r for r in ranking if r["score"] > 0]
-              df_score = pd.DataFrame([{
-                  "排名": f"#{i+1}",
-                  "題材": r["theme"],
-                  "熱度（次）": r["score"],
-                  "熱度%": f"{r['score'] / window * 100:.0f}%",
-                  "最後當第 1": r.get("last_top1_date") or "—",
-                  "成分股數": len(r["stocks"]),
-              } for i, r in enumerate(positive)])
-              st.dataframe(df_score, use_container_width=True, hide_index=True,
-                          height=min(700, len(positive) * 38 + 50))
-
-          # 每日第一名時間軸
-          st.markdown(f"### 📅 每日第一名時間軸（{window} 天）")
-          if top1_timeline:
-              import pandas as pd
-              # 改新→舊
-              tl_rev = sorted(top1_timeline, key=lambda x: x["date"], reverse=True)
-              df_tl = pd.DataFrame([{
-                  "日期": r["date"],
-                  "第一名題材": r["theme"],
-                  "成交額(億)": f"{r['amount_ntd'] / 1e8:,.2f}",
-              } for r in tl_rev])
-              st.dataframe(df_tl, use_container_width=True, hide_index=True,
-                          height=min(700, len(tl_rev) * 38 + 50))
+              sorted_days = sorted(daily_top5.keys(), reverse=True)[:5]
+              for d in sorted_days:
+                  rows = daily_top5[d]
+                  if not rows:
+                      continue
+                  with st.expander(f"📆 **{d}** — Top 1: {rows[0]['theme']} (熱度 {rows[0]['heat']:.2f})", expanded=(d == today)):
+                      df_d = pd.DataFrame([{
+                          "排名": f"#{r['rank']}",
+                          "題材": r["theme"],
+                          "熱度": f"{r['heat']:.2f}",
+                          "成交額倍率": f"{r['amount_ratio']:.2f}x",
+                          "漲幅中位": f"{r['return_pct_median']:+.2f}%",
+                      } for r in rows])
+                      st.dataframe(df_d, use_container_width=True, hide_index=True, height=220)
 
           # 點題材展開成分股
-          st.markdown("### 🔍 個別題材成分股（點開）")
-          for r in ranking[:20]:  # 只列熱度前 20 個展開
-              if r["score"] == 0:
-                  break
+          st.markdown("### 🔍 個別題材成分股（今日 Top 15 展開）")
+          for r in today_ranking[:15]:
               with st.expander(
-                  f"**{r['theme']}**  熱度 {r['score']} 次 ({r['score']/window*100:.0f}%)  "
-                  f"／ 成分股 {len(r['stocks'])} 檔"
+                  f"**{r['theme']}**  熱度 {r['heat']:.2f}  "
+                  f"／成交額倍率 {r['amount_ratio']:.2f}x  "
+                  f"／漲幅中位 {r['return_pct_median']:+.2f}%  "
+                  f"／成分股 {len(r['stocks'])} 檔"
               ):
                   st.caption("成分股清單（編輯題材請改 stock-evolution-engine/themes.json）：")
                   cols = st.columns(6)
