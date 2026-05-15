@@ -2189,21 +2189,34 @@ with tab6:
 
           st.caption(f"📐 {theme_data.get('metric_desc', '')}")
 
+          # 顯示控制 toggle
+          col_t1, col_t2 = st.columns([1, 3])
+          with col_t1:
+              _only_up = st.checkbox("🟢 只看漲幅 > 0", value=True,
+                                     help="預設只列「爆量+漲」的強勢題材，避免大戶出貨假訊號")
+
+          def _filter(rows):
+              return [r for r in rows if (r.get("return_pct_median", 0) > 0)] if _only_up else rows
+
           # 今日 Top 10
           st.markdown(f"### 🏆 今日 ({today}) Top 10 熱題材")
           if today_ranking:
               import pandas as pd
-              top10 = today_ranking[:10]
-              df_top = pd.DataFrame([{
-                  "排名": f"#{r['rank']}",
-                  "題材": r["theme"],
-                  "熱度": f"{r['heat']:.2f}",
-                  "成交額倍率": f"{r['amount_ratio']:.2f}x",
-                  "漲幅中位": f"{r['return_pct_median']:+.2f}%",
-                  "成交額(億)": f"{r['amount_ntd'] / 1e8:,.1f}",
-                  "成分股": r.get('n_stocks_traded', 0),
-              } for r in top10])
-              st.dataframe(df_top, use_container_width=True, hide_index=True, height=420)
+              filtered_today = _filter(today_ranking)
+              top10 = filtered_today[:10]
+              if not top10:
+                  st.warning("今日無「爆量+漲」題材（關掉 toggle 看全部）")
+              else:
+                  df_top = pd.DataFrame([{
+                      "排名": f"#{i+1}",
+                      "題材": r["theme"],
+                      "熱度": f"{r['heat']:.2f}",
+                      "成交額倍率": f"{r['amount_ratio']:.2f}x",
+                      "漲幅中位": f"{r['return_pct_median']:+.2f}%",
+                      "成交額(億)": f"{r['amount_ntd'] / 1e8:,.1f}",
+                      "成分股": r.get('n_stocks_traded', 0),
+                  } for i, r in enumerate(top10)])
+                  st.dataframe(df_top, use_container_width=True, hide_index=True, height=420)
 
           # 過去 5 天每天 Top 5
           st.markdown(f"### 📅 過去 5 天每日 Top 5（看輪動）")
@@ -2211,22 +2224,24 @@ with tab6:
               import pandas as pd
               sorted_days = sorted(daily_top5.keys(), reverse=True)[:5]
               for d in sorted_days:
-                  rows = daily_top5[d]
+                  rows = _filter(daily_top5[d])
                   if not rows:
+                      with st.expander(f"📆 **{d}** — （該日無爆量+漲題材）", expanded=False):
+                          st.caption("關掉 toggle 看全部")
                       continue
-                  with st.expander(f"📆 **{d}** — Top 1: {rows[0]['theme']} (熱度 {rows[0]['heat']:.2f})", expanded=(d == today)):
+                  with st.expander(f"📆 **{d}** — Top 1: {rows[0]['theme']} (熱度 {rows[0]['heat']:.2f}, 漲 {rows[0]['return_pct_median']:+.2f}%)", expanded=(d == today)):
                       df_d = pd.DataFrame([{
-                          "排名": f"#{r['rank']}",
+                          "排名": f"#{i+1}",
                           "題材": r["theme"],
                           "熱度": f"{r['heat']:.2f}",
                           "成交額倍率": f"{r['amount_ratio']:.2f}x",
                           "漲幅中位": f"{r['return_pct_median']:+.2f}%",
-                      } for r in rows])
+                      } for i, r in enumerate(rows)])
                       st.dataframe(df_d, use_container_width=True, hide_index=True, height=220)
 
           # 點題材展開成分股
           st.markdown("### 🔍 個別題材成分股（今日 Top 15 展開）")
-          for r in today_ranking[:15]:
+          for r in _filter(today_ranking)[:15]:
               with st.expander(
                   f"**{r['theme']}**  熱度 {r['heat']:.2f}  "
                   f"／成交額倍率 {r['amount_ratio']:.2f}x  "
