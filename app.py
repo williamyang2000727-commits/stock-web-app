@@ -592,14 +592,17 @@ elif _pipeline_ran_today:
 # 因為篩選器用主 Data Gist 的 screener_results.json + golden_optimal_hold.json
 # 短波段 Data Gist 沒這兩個檔，顯示會錯亂
 if _IS_SHORT:
-    tab0, tab1, tab2, tab3 = st.tabs([signal_label, "📊 買入排行", "💼 持倉管理", "📋 回測績效"])
-    # tab4 用 empty container 當 placeholder，避免下方 `with tab4:` 報錯
-    # （內容不會渲染因為不在 st.tabs 裡）
+    # 短波段有 5 個 Tab：少了 Tab 4 篩選器，多了 Tab 5 投信突襲
+    tab0, tab1, tab2, tab3, tab5 = st.tabs([signal_label, "📊 買入排行", "💼 持倉管理", "📋 回測績效", "🏦 投信突襲"])
     tab4 = st.container()
     _tab4_active = False
+    _tab5_active = True
 else:
+    # 主策略有 Tab 4 篩選器，沒有 Tab 5 投信突襲
     tab0, tab1, tab2, tab3, tab4 = st.tabs([signal_label, "📊 買入排行", "💼 持倉管理", "📋 回測績效", "🔍 篩選器"])
     _tab4_active = True
+    tab5 = st.container()
+    _tab5_active = False
 
 # ══════════════════════════════════════════════════════════════
 # TAB 0: SIGNALS
@@ -2059,3 +2062,72 @@ with tab4:
               } for r in macd_only_list])
               st.dataframe(macd_df, use_container_width=True, hide_index=True,
                           height=min(450, len(macd_only_list) * 38 + 50))
+
+
+# ══════════════════════════════════════════════════════════════
+# TAB 5: 投信突襲（5/15 新增，只短波段 Web 顯示）
+# ══════════════════════════════════════════════════════════════
+with tab5:
+  if _tab5_active:
+      st.subheader("🏦 投信突襲訊號")
+      st.caption("過去 22 個交易日，過去 5 天投信完全沒動 → 突然淨買 ≥ 50 張的純個股清單（每天 16:35 pipeline 自動更新）")
+
+      st.warning("⚠️ **這是研究工具不是策略**。實證顯示投信買 vs 賣勝率差 < 1%（5/15 backtest 投信籌碼無方向性 alpha）。請自行配合其他指標判斷。")
+
+      trust_data = read_gist_file("trust_screener_results.json")
+      if not trust_data:
+          st.info("還沒有資料 — 等明天 16:35 pipeline 跑完會自動更新（或 William 在 Windows 手動跑 `python screener_trust.py`）")
+      else:
+          updated = trust_data.get("updated", "?")
+          today = trust_data.get("today", "?")
+          params = trust_data.get("params", {})
+          n_signals = trust_data.get("n_signals", 0)
+          signals = trust_data.get("signals", [])
+
+          c1, c2, c3, c4 = st.columns(4)
+          c1.metric("訊號日總數", f"{n_signals} 個")
+          c2.metric("資料末日", today)
+          c3.metric("更新時間", updated[:16] if updated != "?" else "?")
+          c4.metric("成交量門檻", f"{params.get('min_volume_lots', '?')} 張")
+
+          st.markdown(
+              f"**訊號定義**：過去 {params.get('lookback_trust_days', 5)} 個交易日投信淨買賣超累計 = 0 "
+              f"→ 今日投信淨買 ≥ {params.get('min_net_lots_today', 50)} 張 "
+              f"AND 訊號日成交量 ≥ {params.get('min_volume_lots', 1000)} 張 "
+              f"AND 純個股 (4 位數字 1101-9999)"
+          )
+
+          if not signals:
+              st.info(f"過去 {params.get('display_window_days', 22)} 個交易日內無訊號")
+          else:
+              import pandas as pd
+              df = pd.DataFrame([{
+                  "新鮮度": ("🆕" if s["days_held"] <= 3 else "📅"),
+                  "股號": s["ticker"],
+                  "公司": s.get("name", s["ticker"]),
+                  "訊號日": s["sig_date"][:4] + "-" + s["sig_date"][4:6] + "-" + s["sig_date"][6:8],
+                  "已過天數": f"{s['days_held']} 天",
+                  "投信買超": f"{s['today_net_lots']} 張",
+                  "當天成交量": f"{s['vol_lots_at_sig']:,} 張",
+                  "當天漲幅": f"{s.get('sig_day_return_pct', 0):+.2f}%",
+                  "D 收": f"{s['sig_close']}",
+                  "D+1 買入": f"{s['buy_price']}",
+                  "目前價": f"{s['current_price']}",
+                  "浮動報酬%": f"{s['float_ret_pct']:+.2f}%",
+                  "贏輸": "🟢 贏" if s["float_ret_pct"] > 0 else ("🔴 輸" if s["days_held"] >= 1 else "⏳ 當日"),
+              } for s in signals])
+              st.dataframe(df, use_container_width=True, hide_index=True,
+                          height=min(600, len(signals) * 38 + 60))
+
+              # 統計概覽
+              st.markdown("---")
+              n_win = sum(1 for s in signals if s["float_ret_pct"] > 0 and s["days_held"] >= 1)
+              n_total_finished = sum(1 for s in signals if s["days_held"] >= 1)
+              if n_total_finished > 0:
+                  wr = n_win / n_total_finished * 100
+                  avg_ret = sum(s["float_ret_pct"] for s in signals if s["days_held"] >= 1) / n_total_finished
+                  st.caption(
+                      f"📊 統計（已進場 {n_total_finished} 筆）："
+                      f"勝率 {wr:.1f}% | 平均浮動報酬 {avg_ret:+.2f}% "
+                      f"(僅供參考，N 太小不具統計顯著性)"
+                  )
