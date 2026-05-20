@@ -2120,10 +2120,10 @@ with tab5:
                   "目前價": f"{s['current_price']}",
                   "浮動報酬%": f"{s['float_ret_pct']:+.2f}%",
                   "贏輸": (
-                      "🆕 明日進場" if s.get("days_since_buy", 99) < 0
+                      "🆕 今日訊號" if s.get("days_since_buy", 99) < 0
                       else "⏳ 待觀察" if s.get("days_since_buy", s["days_held"]) < 1
-                      else ("🟢 贏" if s["float_ret_pct"] > 0
-                            else ("⚪ 持平" if s["float_ret_pct"] == 0 else "🔴 輸"))
+                      else ("🟢 漲" if s["float_ret_pct"] > 0
+                            else ("⚪ 持平" if s["float_ret_pct"] == 0 else "🔴 跌"))
                   ),
               } for s in signals])
               st.dataframe(df, use_container_width=True, hide_index=True,
