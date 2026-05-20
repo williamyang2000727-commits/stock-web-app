@@ -2073,13 +2073,18 @@ with tab4:
 with tab5:
   if _tab5_active:
       st.subheader("🏦 投信突襲訊號")
-      st.caption("過去 22 個交易日，過去 5 天投信完全沒動 → 突然淨買 ≥ 50 張的純個股清單（每天 16:35 pipeline 自動更新）")
+      st.caption("過去 22 個交易日，過去 5 天投信完全沒動 → 突然淨買 ≥ 50 張的純個股清單")
 
+      st.info(
+          "🕕 **每天 18:00 自動更新**（5/20 改）。"
+          "原 16:35 排程因 TWSE T86 投信欄位未完整釋出多次寫入假值（5/19 凌巨/華夏、5/20 台積電/聯電），"
+          "現拆到 18:00 獨立跑（含 19:00 / 20:00 兩道 retry）。"
+      )
       st.warning("⚠️ **這是研究工具不是策略**。實證顯示投信買 vs 賣勝率差 < 1%（5/15 backtest 投信籌碼無方向性 alpha）。請自行配合其他指標判斷。")
 
       trust_data = read_gist_file("trust_screener_results.json")
       if not trust_data:
-          st.info("還沒有資料 — 等明天 16:35 pipeline 跑完會自動更新（或 William 在 Windows 手動跑 `python screener_trust.py`）")
+          st.info("還沒有資料 — 等今天 18:00 排程跑完會自動更新（或 William 在 Windows 手動跑 `python screener_trust.py`）")
       else:
           updated = trust_data.get("updated", "?")
           today = trust_data.get("today", "?")
@@ -2179,9 +2184,11 @@ with tab6:
       st.subheader("🔥 題材熱度榜")
       st.caption("熱度 = sqrt(成交額倍率 × 漲幅中位數)。爆量 + 漲價 = 真實題材輪動")
 
+      st.info("🕕 **每天 18:00 自動更新**（跟投信突襲 Tab 一起跑，含 19:00 / 20:00 retry）")
+
       theme_data = read_gist_file("theme_screener_results.json")
       if not theme_data:
-          st.info("還沒有資料 — 等明天 pipeline Step 9 自動更新（或 Windows 手動跑 `python screener_themes.py`）")
+          st.info("還沒有資料 — 等今天 18:00 排程跑完會自動更新（或 Windows 手動跑 `python screener_themes.py`）")
       else:
           updated = theme_data.get("updated", "?")
           today = theme_data.get("today", "?")
