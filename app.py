@@ -2123,7 +2123,7 @@ with tab5:
                   "當天漲幅": f"{s.get('sig_day_return_pct', 0):+.2f}%",
                   "D 收": f"{s['sig_close']}",
                   "目前價": f"{s['current_price']}",
-                  "浮動報酬%": f"{s['float_ret_pct']:+.2f}%",
+                  "訊號日後漲跌%": f"{s['float_ret_pct']:+.2f}%",
                   "贏輸": (
                       "🆕 今日訊號" if s.get("days_since_buy", 99) < 0
                       else "⏳ 待觀察" if s.get("days_since_buy", s["days_held"]) < 1
@@ -2146,9 +2146,9 @@ with tab5:
                   wr = n_win / n_total_finished * 100
                   avg_ret = sum(s["float_ret_pct"] for s in signals if _is_finished(s)) / n_total_finished
                   st.caption(
-                      f"📊 統計（已進場 {n_total_finished} 筆）："
-                      f"勝率 {wr:.1f}% | 平均浮動報酬 {avg_ret:+.2f}% "
-                      f"(僅供參考，N 太小不具統計顯著性)"
+                      f"📊 統計（訊號日已過 {n_total_finished} 筆）："
+                      f"漲比 {wr:.1f}% | 平均漲跌（訊號日後）{avg_ret:+.2f}% "
+                      f"(從訊號日 D 收盤算起，僅供參考)"
                   )
 
               # 詳細：每個訊號股展開過去 30 天投信買賣超
@@ -2164,7 +2164,7 @@ with tab5:
                       f"{badge}  **{s['ticker']} {s.get('name','')}**  "
                       f"訊號 {s['sig_date'][:4]}-{s['sig_date'][4:6]}-{s['sig_date'][6:8]}  "
                       f"／投信 30 天累計 {cum_lots:+,} 張  "
-                      f"／浮動 {s['float_ret_pct']:+.2f}%"
+                      f"／訊號日後 {s['float_ret_pct']:+.2f}%"
                   ):
                       sig_date_fmt = f"{s['sig_date'][:4]}-{s['sig_date'][4:6]}-{s['sig_date'][6:8]}"
                       hist_df = pd.DataFrame([{
