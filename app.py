@@ -2125,8 +2125,7 @@ with tab5:
                   "目前價": f"{s['current_price']}",
                   "訊號日後漲跌%": f"{s['float_ret_pct']:+.2f}%",
                   "贏輸": (
-                      "🆕 今日訊號" if s.get("days_since_buy", 99) < 0
-                      else "⏳ 待觀察" if s.get("days_since_buy", s["days_held"]) < 1
+                      "🆕 今日訊號" if s["days_held"] == 0
                       else ("🟢 漲" if s["float_ret_pct"] > 0
                             else ("⚪ 持平" if s["float_ret_pct"] == 0 else "🔴 跌"))
                   ),
@@ -2136,10 +2135,9 @@ with tab5:
 
               # 統計概覽
               st.markdown("---")
-              # 用 days_since_buy >= 1 判斷「已持有」（買入當天浮動 0 沒意義）
-              # 向後相容：舊資料沒 days_since_buy 用 days_held - 1
+              # 漲跌基準改成從訊號日 D 算 → days_held >= 1 就有意義（D+1 起就有非 0 數字）
               def _is_finished(s):
-                  return s.get("days_since_buy", max(0, s["days_held"] - 1)) >= 1
+                  return s["days_held"] >= 1
               n_win = sum(1 for s in signals if s["float_ret_pct"] > 0 and _is_finished(s))
               n_total_finished = sum(1 for s in signals if _is_finished(s))
               if n_total_finished > 0:
@@ -2159,7 +2157,7 @@ with tab5:
                   if not hist:
                       continue
                   cum_lots = sum(h["trust_lots"] for h in hist)
-                  badge = "🟢" if s["float_ret_pct"] > 0 else ("🔴" if s["days_held"] >= 1 else "⏳")
+                  badge = "🆕" if s["days_held"] == 0 else ("🟢" if s["float_ret_pct"] > 0 else ("🔴" if s["float_ret_pct"] < 0 else "⚪"))
                   with st.expander(
                       f"{badge}  **{s['ticker']} {s.get('name','')}**  "
                       f"訊號 {s['sig_date'][:4]}-{s['sig_date'][4:6]}-{s['sig_date'][6:8]}  "
