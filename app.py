@@ -2120,7 +2120,8 @@ with tab5:
                   "目前價": f"{s['current_price']}",
                   "浮動報酬%": f"{s['float_ret_pct']:+.2f}%",
                   "贏輸": (
-                      "⏳ 待觀察" if s.get("days_since_buy", s["days_held"]) < 1
+                      "🆕 明日進場" if s.get("days_since_buy", 99) < 0
+                      else "⏳ 待觀察" if s.get("days_since_buy", s["days_held"]) < 1
                       else ("🟢 贏" if s["float_ret_pct"] > 0
                             else ("⚪ 持平" if s["float_ret_pct"] == 0 else "🔴 輸"))
                   ),
