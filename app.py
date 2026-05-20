@@ -2119,18 +2119,26 @@ with tab5:
                   "D 收": f"{s['sig_close']}",
                   "目前價": f"{s['current_price']}",
                   "浮動報酬%": f"{s['float_ret_pct']:+.2f}%",
-                  "贏輸": "🟢 贏" if s["float_ret_pct"] > 0 else ("🔴 輸" if s["days_held"] >= 1 else "⏳ 當日"),
+                  "贏輸": (
+                      "⏳ 待觀察" if s.get("days_since_buy", s["days_held"]) < 1
+                      else ("🟢 贏" if s["float_ret_pct"] > 0
+                            else ("⚪ 持平" if s["float_ret_pct"] == 0 else "🔴 輸"))
+                  ),
               } for s in signals])
               st.dataframe(df, use_container_width=True, hide_index=True,
                           height=min(600, len(signals) * 38 + 60))
 
               # 統計概覽
               st.markdown("---")
-              n_win = sum(1 for s in signals if s["float_ret_pct"] > 0 and s["days_held"] >= 1)
-              n_total_finished = sum(1 for s in signals if s["days_held"] >= 1)
+              # 用 days_since_buy >= 1 判斷「已持有」（買入當天浮動 0 沒意義）
+              # 向後相容：舊資料沒 days_since_buy 用 days_held - 1
+              def _is_finished(s):
+                  return s.get("days_since_buy", max(0, s["days_held"] - 1)) >= 1
+              n_win = sum(1 for s in signals if s["float_ret_pct"] > 0 and _is_finished(s))
+              n_total_finished = sum(1 for s in signals if _is_finished(s))
               if n_total_finished > 0:
                   wr = n_win / n_total_finished * 100
-                  avg_ret = sum(s["float_ret_pct"] for s in signals if s["days_held"] >= 1) / n_total_finished
+                  avg_ret = sum(s["float_ret_pct"] for s in signals if _is_finished(s)) / n_total_finished
                   st.caption(
                       f"📊 統計（已進場 {n_total_finished} 筆）："
                       f"勝率 {wr:.1f}% | 平均浮動報酬 {avg_ret:+.2f}% "
