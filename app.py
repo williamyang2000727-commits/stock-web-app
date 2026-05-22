@@ -2229,6 +2229,8 @@ with tab6:
                     "DIF": f"{s['dif']:.2f}",
                     "OSC": f"{s['osc']:.2f}",
                     "投信60天": f"{s.get('recent_60d_net_lots', 0):+,} 張",
+                    "首次後投信": f"{s.get('trust_after_first_lots', 0):+,} 張",
+                    "昨日投信": f"{s.get('latest_trust_net_lots', 0):+,} 張",
                     "首次價": f"{s.get('sig_close', s['buy_price'])}",
                     "目前價": f"{s['current_price']}",
                     "首次後漲跌%": f"{s['float_ret_pct']:+.2f}%",
