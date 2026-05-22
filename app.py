@@ -592,13 +592,12 @@ elif _pipeline_ran_today:
 # 因為篩選器用主 Data Gist 的 screener_results.json + golden_optimal_hold.json
 # 短波段 Data Gist 沒這兩個檔，顯示會錯亂
 if _IS_SHORT:
-    # 短波段：5 個 Tab，無 Tab 4 篩選器，多 Tab 5 投信突襲
-    tab0, tab1, tab2, tab3, tab5 = st.tabs([signal_label, "📊 買入排行", "💼 持倉管理", "📋 回測績效", "🏦 投信突襲"])
+    # 短波段：6 個 Tab，無 Tab 4 篩選器，多 Tab 5 投信突襲，Tab 6 MACD+投信
+    tab0, tab1, tab2, tab3, tab5, tab6 = st.tabs([signal_label, "📊 買入排行", "💼 持倉管理", "📋 回測績效", "🏦 投信突襲", "🔮 MACD+投信"])
     tab4 = st.container()
-    tab6 = st.container()
     _tab4_active = False
     _tab5_active = True
-    _tab6_active = False
+    _tab6_active = True
 else:
     # 主策略：5 個 Tab，有 Tab 4 篩選器，無 Tab 5/6
     tab0, tab1, tab2, tab3, tab4 = st.tabs([signal_label, "📊 買入排行", "💼 持倉管理", "📋 回測績效", "🔍 篩選器"])
@@ -2179,128 +2178,133 @@ with tab5:
 # TAB 6: 題材熱度榜（5/16 新增，只短波段 Web 顯示）
 # ══════════════════════════════════════════════════════════════
 with tab6:
-  if _tab6_active:
-      st.subheader("🔥 題材熱度榜")
-      st.caption("熱度 = sqrt(成交額倍率 × 漲幅中位數)。爆量 + 漲價 = 真實題材輪動")
+    if _tab6_active:
+        st.subheader("🔮 MACD + 投信共振波段策略")
+        st.caption("股池範圍為每日成交額前 100 名個股，尋找投信水位處於半年高檔且 MACD 長期綠棒後出現反轉訊號的股票。")
 
-      st.info("🕕 **每天 18:00 自動更新**（跟投信突襲 Tab 一起跑，含 19:00 / 20:00 retry）")
+        st.info(
+            "🕕 **每天 18:00 自動更新**（含 19:00 / 20:00 兩道 retry）。\n"
+            "此策略旨在捕捉投信高持股且股價波段洗盤沈澱完畢，隨時準備發動反轉的股票。"
+        )
 
-      theme_data = read_gist_file("theme_screener_results.json")
-      if not theme_data:
-          st.info("還沒有資料 — 等今天 18:00 排程跑完會自動更新（或 Windows 手動跑 `python screener_themes.py`）")
-      else:
-          updated = theme_data.get("updated", "?")
-          today = theme_data.get("today", "?")
-          today_ranking = theme_data.get("today_ranking", [])
-          daily_top5 = theme_data.get("daily_top5", {})
-          window = theme_data.get("window_days", 22)
-          baseline = theme_data.get("baseline_days", 10)
+        st.warning("⚠️ **策略提示**：本篩選器鎖定「籌碼與技術面共振」個股。訊號日前 OSC 需綠棒連續持續至少 8 天以上（洗盤沈澱充分），DIF 低於 10，且最近 2-3 天綠棒明顯縮短收斂，同時投信累積持股水位處於過去半年最高點的 60% 以上。")
 
-          c1, c2, c3, c4 = st.columns(4)
-          c1.metric("題材總數", f"{theme_data.get('theme_count', 0)}")
-          c2.metric("資料末日", today)
-          c3.metric("更新", updated[:16] if updated != "?" else "?")
-          c4.metric("基期", f"{baseline} 日均")
+        macd_trust_data = read_gist_file("macd_trust_screener_results.json")
+        if not macd_trust_data:
+            st.info("還沒有資料 — 等今天 18:00 排程跑完會自動更新（或手動執行 `python screener_macd_trust.py`）")
+        else:
+            updated = macd_trust_data.get("updated", "?")
+            today = macd_trust_data.get("today", "?")
+            params = macd_trust_data.get("params", {})
+            n_signals = macd_trust_data.get("n_signals", 0)
+            signals = macd_trust_data.get("signals", [])
 
-          st.caption(f"📐 {theme_data.get('metric_desc', '')}")
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("訊號股總數", f"{n_signals} 個")
+            c2.metric("資料末日", today)
+            c3.metric("更新時間", updated[:16] if updated != "?" else "?")
+            c4.metric("DIF 限制", f"< {params.get('dif_limit', 10)}")
 
-          # 顯示控制 toggle
-          col_t1, col_t2 = st.columns([1, 3])
-          with col_t1:
-              _only_up = st.checkbox("🟢 只看漲幅 > 0", value=True,
-                                     help="預設只列「爆量+漲」的強勢題材，避免大戶出貨假訊號")
+            st.markdown(
+                f"**策略參數**：投信水位半年比率 ≥ {params.get('ratio_threshold_pct', 60)}% "
+                f"AND MACD OSC 綠棒連續 ≥ {params.get('min_green_days', 8)} 天 "
+                f"AND 連續 2 天綠棒縮短 ($0 > \\text{{OSC}}[t] > \\text{{OSC}}[t-1] > \\text{{OSC}}[t-2]$) "
+                f"AND 每日成交額前 100 名個股 (純個股 1101-9999)"
+            )
 
-          def _filter(rows):
-              return [r for r in rows if (r.get("return_pct_median", 0) > 0)] if _only_up else rows
+            if not signals:
+                st.info(f"過去 {params.get('display_window_days', 22)} 個交易日內無訊號")
+            else:
+                import pandas as pd
 
-          # 今日 Top 10
-          st.markdown(f"### 🏆 今日 ({today}) Top 10 熱題材")
-          if today_ranking:
-              import pandas as pd
-              filtered_today = _filter(today_ranking)
-              top10 = filtered_today[:10]
-              if not top10:
-                  st.warning("今日無「爆量+漲」題材（關掉 toggle 看全部）")
-              else:
-                  df_top = pd.DataFrame([{
-                      "排名": f"#{i+1}",
-                      "題材": r["theme"],
-                      "熱度": f"{r['heat']:.2f}",
-                      "成交額倍率": f"{r['amount_ratio']:.2f}x",
-                      "漲幅中位": f"{r['return_pct_median']:+.2f}%",
-                      "成交額(億)": f"{r['amount_ntd'] / 1e8:,.1f}",
-                      "成分股": r.get('n_stocks_traded', 0),
-                  } for i, r in enumerate(top10)])
-                  st.dataframe(df_top, use_container_width=True, hide_index=True, height=420)
+                # 概覽簡表
+                st.markdown("### 📋 訊號股清單（點下方展開看詳細趨勢圖與逐日歷史）")
+                df = pd.DataFrame([{
+                    "新鮮度": ("🆕" if s["days_held"] <= 3 else "📅"),
+                    "股號": s["ticker"],
+                    "公司": s.get("name", s["ticker"]),
+                    "訊號日": s["sig_date"][:4] + "-" + s["sig_date"][4:6] + "-" + s["sig_date"][6:8],
+                    "已過天數": f"{s['days_held']} 天",
+                    "投信水位比率": f"{s.get('ratio_to_max_pct', 0.0):.1f}%",
+                    "OSC綠棒天數": f"{s['green_days']} 天",
+                    "DIF": f"{s['dif']:.2f}",
+                    "OSC": f"{s['osc']:.2f}",
+                    "D+1買入價": f"{s['buy_price']}",
+                    "目前價": f"{s['current_price']}",
+                    "累計漲跌%": f"{s['float_ret_pct']:+.2f}%",
+                    "贏輸": (
+                        "🆕 今日訊號" if s["days_held"] == 0
+                        else ("🟢 漲" if s["float_ret_pct"] > 0
+                              else ("⚪ 持平" if s["float_ret_pct"] == 0 else "🔴 跌"))
+                    ),
+                } for s in signals])
+                st.dataframe(df, use_container_width=True, hide_index=True,
+                            height=min(600, len(signals) * 38 + 60))
 
-          # 累計次數榜（你最初要的）
-          st.markdown("### 🥇 累計「當日第 1 名」次數榜（只算漲幅>0 那天才算強勢）")
-          col_a, col_b = st.columns(2)
+                # 統計概覽
+                st.markdown("---")
+                def _is_finished(s):
+                    return s["days_held"] >= 1
+                n_win = sum(1 for s in signals if s["float_ret_pct"] > 0 and _is_finished(s))
+                n_total_finished = sum(1 for s in signals if _is_finished(s))
+                if n_total_finished > 0:
+                    wr = n_win / n_total_finished * 100
+                    avg_ret = sum(s["float_ret_pct"] for s in signals if _is_finished(s)) / n_total_finished
+                    st.caption(
+                        f"📊 策略統計（訊號日已過 {n_total_finished} 筆）："
+                        f"勝率 {wr:.1f}% | 平均波段漲跌（訊號日隔天D+1買入至今）{avg_ret:+.2f}% "
+                        f"(以 D+1 收盤買入價起算，僅供學術研究參考)"
+                    )
 
-          cum_5d = theme_data.get("cumulative_top1_5d", [])
-          cum_22d = theme_data.get("cumulative_top1_22d", [])
-
-          with col_a:
-              st.markdown("**過去 5 天**")
-              if cum_5d:
-                  import pandas as pd
-                  df5 = pd.DataFrame([{
-                      "排名": f"#{i+1}",
-                      "題材": r["theme"],
-                      "次數": f"{r['count']}/5",
-                      "最後當第 1": r.get("last_top1_date") or "—",
-                  } for i, r in enumerate(cum_5d)])
-                  st.dataframe(df5, use_container_width=True, hide_index=True,
-                              height=min(400, len(cum_5d) * 38 + 50))
-              else:
-                  st.caption("（5 天內無強勢題材）")
-
-          with col_b:
-              st.markdown("**過去 22 天**")
-              if cum_22d:
-                  import pandas as pd
-                  df22 = pd.DataFrame([{
-                      "排名": f"#{i+1}",
-                      "題材": r["theme"],
-                      "次數": f"{r['count']}/22",
-                      "最後當第 1": r.get("last_top1_date") or "—",
-                  } for i, r in enumerate(cum_22d)])
-                  st.dataframe(df22, use_container_width=True, hide_index=True,
-                              height=min(400, len(cum_22d) * 38 + 50))
-              else:
-                  st.caption("（22 天內無強勢題材）")
-
-          # 過去 5 天每天 Top 5
-          st.markdown(f"### 📅 過去 5 天每日 Top 5（看輪動）")
-          if daily_top5:
-              import pandas as pd
-              sorted_days = sorted(daily_top5.keys(), reverse=True)[:5]
-              for d in sorted_days:
-                  rows = _filter(daily_top5[d])
-                  if not rows:
-                      with st.expander(f"📆 **{d}** — （該日無爆量+漲題材）", expanded=False):
-                          st.caption("關掉 toggle 看全部")
-                      continue
-                  with st.expander(f"📆 **{d}** — Top 1: {rows[0]['theme']} (熱度 {rows[0]['heat']:.2f}, 漲 {rows[0]['return_pct_median']:+.2f}%)", expanded=(d == today)):
-                      df_d = pd.DataFrame([{
-                          "排名": f"#{i+1}",
-                          "題材": r["theme"],
-                          "熱度": f"{r['heat']:.2f}",
-                          "成交額倍率": f"{r['amount_ratio']:.2f}x",
-                          "漲幅中位": f"{r['return_pct_median']:+.2f}%",
-                      } for i, r in enumerate(rows)])
-                      st.dataframe(df_d, use_container_width=True, hide_index=True, height=220)
-
-          # 點題材展開成分股
-          st.markdown("### 🔍 個別題材成分股（今日 Top 15 展開）")
-          for r in _filter(today_ranking)[:15]:
-              with st.expander(
-                  f"**{r['theme']}**  熱度 {r['heat']:.2f}  "
-                  f"／成交額倍率 {r['amount_ratio']:.2f}x  "
-                  f"／漲幅中位 {r['return_pct_median']:+.2f}%  "
-                  f"／成分股 {len(r['stocks'])} 檔"
-              ):
-                  st.caption("成分股清單（編輯題材請改 stock-evolution-engine/themes.json）：")
-                  cols = st.columns(6)
-                  for i, tk in enumerate(r["stocks"]):
-                      cols[i % 6].markdown(f"• `{tk}`")
+                # 詳細：每個訊號股展開過去 30 天數據與圖表
+                st.markdown("---")
+                st.markdown("### 🔍 個股波段共振趨勢分析（過去 30 天）")
+                for s in signals:
+                    hist = s.get("history", [])
+                    if not hist:
+                        continue
+                    
+                    badge = "🆕" if s["days_held"] == 0 else ("🟢" if s["float_ret_pct"] > 0 else ("🔴" if s["float_ret_pct"] < 0 else "⚪"))
+                    
+                    with st.expander(
+                        f"{badge}  **{s['ticker']} {s.get('name','')}**  "
+                        f"訊號日 {s['sig_date'][:4]}-{s['sig_date'][4:6]}-{s['sig_date'][6:8]}  "
+                        f"／投信半年水位 {s.get('ratio_to_max_pct', 0.0):.1f}%  "
+                        f"／OSC 綠棒 {s['green_days']} 天  "
+                        f"／累計漲跌 {s['float_ret_pct']:+.2f}%"
+                    ):
+                        # 圖表展示區
+                        c_chart1, c_chart2 = st.columns(2)
+                        
+                        # 準備時間軸（最舊到最新）
+                        hist_sorted = list(reversed(hist))
+                        dates_short = [h["date"][5:] for h in hist_sorted]
+                        
+                        with c_chart1:
+                            st.markdown("📈 **MACD OSC 綠棒柱狀圖（負值縮短代表反轉準備）**")
+                            chart_osc_df = pd.DataFrame({
+                                "OSC": [h["osc"] for h in hist_sorted]
+                            }, index=dates_short)
+                            st.bar_chart(chart_osc_df, use_container_width=True)
+                            
+                        with c_chart2:
+                            st.markdown("🏦 **投信累積持股趨勢 (張)**")
+                            chart_trust_df = pd.DataFrame({
+                                "投信持股(張)": [h["cum_lots"] for h in hist_sorted]
+                            }, index=dates_short)
+                            st.line_chart(chart_trust_df, use_container_width=True)
+                            
+                        # 逐日明細表格
+                        st.markdown("📋 **逐日投信與 MACD 指標明細表**")
+                        sig_date_fmt = f"{s['sig_date'][:4]}-{s['sig_date'][4:6]}-{s['sig_date'][6:8]}"
+                        hist_df = pd.DataFrame([{
+                            "日期": h["date"] + ("  ⭐ 訊號日" if h["date"] == sig_date_fmt else ""),
+                            "收盤價": f"{h['close']}",
+                            "DIF": f"{h['dif']:.3f}",
+                            "OSC": f"{h['osc']:.3f}",
+                            "投信單日買賣超(張)": f"{h['net_lots']:+,}" if h["net_lots"] != 0 else "0",
+                            "投信累積持股(張)": f"{h['cum_lots']:+,}",
+                        } for h in hist])
+                        st.dataframe(hist_df, use_container_width=True, hide_index=True,
+                                    height=min(400, len(hist) * 35 + 50))
+                        st.caption("⭐ = 策略發出訊號日。訊號日隔天 (D+1) 收盤價為模擬買入基準點。")
