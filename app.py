@@ -2220,20 +2220,20 @@ with tab6:
                 # 概覽簡表
                 st.markdown("### 📋 訊號股清單（點下方展開看詳細趨勢圖與逐日歷史）")
                 df = pd.DataFrame([{
-                    "新鮮度": ("🆕" if s["days_held"] <= 3 else "📅"),
+                    "新鮮度": ("🆕" if s.get("calendar_days_since_first", s.get("days_held", 0)) <= 3 else "📅"),
                     "股號": s["ticker"],
                     "公司": s.get("name", s["ticker"]),
-                    "訊號日": s["sig_date"][:4] + "-" + s["sig_date"][4:6] + "-" + s["sig_date"][6:8],
-                    "已過天數": f"{s['days_held']} 天",
-                    "投信水位比率": f"{s.get('ratio_to_max_pct', 0.0):.1f}%",
-                    "OSC綠棒天數": f"{s['green_days']} 天",
+                    "首次訊號日": s["sig_date"][:4] + "-" + s["sig_date"][4:6] + "-" + s["sig_date"][6:8],
+                    "出現幾天": f"{s.get('calendar_days_since_first', s.get('days_held', 0))} 天",
+                    "綠棒至今": f"{s.get('green_days_since_first', s['green_days'])} 天",
                     "DIF": f"{s['dif']:.2f}",
                     "OSC": f"{s['osc']:.2f}",
-                    "D+1買入價": f"{s['buy_price']}",
+                    "投信60天": f"{s.get('recent_60d_net_lots', 0):+,} 張",
+                    "首次價": f"{s.get('sig_close', s['buy_price'])}",
                     "目前價": f"{s['current_price']}",
-                    "累計漲跌%": f"{s['float_ret_pct']:+.2f}%",
+                    "首次後漲跌%": f"{s['float_ret_pct']:+.2f}%",
                     "贏輸": (
-                        "🆕 今日訊號" if s["days_held"] == 0
+                        "🆕 今日訊號" if s.get("calendar_days_since_first", s["days_held"]) == 0
                         else ("🟢 漲" if s["float_ret_pct"] > 0
                               else ("⚪ 持平" if s["float_ret_pct"] == 0 else "🔴 跌"))
                     ),
