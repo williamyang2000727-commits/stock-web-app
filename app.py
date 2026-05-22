@@ -592,12 +592,13 @@ elif _pipeline_ran_today:
 # 因為篩選器用主 Data Gist 的 screener_results.json + golden_optimal_hold.json
 # 短波段 Data Gist 沒這兩個檔，顯示會錯亂
 if _IS_SHORT:
-    # 短波段：6 個 Tab，無 Tab 4 篩選器，多 Tab 5 投信突襲 + Tab 6 題材熱度
-    tab0, tab1, tab2, tab3, tab5, tab6 = st.tabs([signal_label, "📊 買入排行", "💼 持倉管理", "📋 回測績效", "🏦 投信突襲", "🔥 題材熱度"])
+    # 短波段：5 個 Tab，無 Tab 4 篩選器，多 Tab 5 投信突襲
+    tab0, tab1, tab2, tab3, tab5 = st.tabs([signal_label, "📊 買入排行", "💼 持倉管理", "📋 回測績效", "🏦 投信突襲"])
     tab4 = st.container()
+    tab6 = st.container()
     _tab4_active = False
     _tab5_active = True
-    _tab6_active = True
+    _tab6_active = False
 else:
     # 主策略：5 個 Tab，有 Tab 4 篩選器，無 Tab 5/6
     tab0, tab1, tab2, tab3, tab4 = st.tabs([signal_label, "📊 買入排行", "💼 持倉管理", "📋 回測績效", "🔍 篩選器"])
