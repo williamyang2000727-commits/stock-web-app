@@ -2278,7 +2278,7 @@ with tab6:
                         f"{badge}  **{s['ticker']} {s.get('name','')}**  "
                         f"訊號日 {s['sig_date'][:4]}-{s['sig_date'][4:6]}-{s['sig_date'][6:8]}  "
                         f"／投信半年水位 {s.get('ratio_to_max_pct', 0.0):.1f}%  "
-                        f"／OSC 綠棒 {s['green_days']} 天  "
+                        f"／OSC 綠棒 {s.get('green_days_since_first', s['green_days'])} 天  "
                         f"／累計漲跌 {s['float_ret_pct']:+.2f}%"
                     ):
                         # 圖表展示區
