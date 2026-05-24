@@ -2205,17 +2205,17 @@ with tab6:
             n_signals = macd_trust_data.get("n_signals", 0)
             signals = macd_trust_data.get("signals", [])
 
-            c1, c2, c3, c4 = st.columns(4)
+            c1, c2, c3 = st.columns(3)
             c1.metric("訊號股總數", f"{n_signals} 個")
             c2.metric("資料末日", today)
             c3.metric("更新時間", updated[:16] if updated != "?" else "?")
-            c4.metric("DIF 限制", f"< {params.get('dif_limit', 10)}")
 
             st.markdown(
-                f"**策略參數**：投信水位半年比率 ≥ {params.get('ratio_threshold_pct', 60)}% "
-                f"AND MACD OSC 綠棒連續 ≥ {params.get('min_green_days', 8)} 天 "
-                f"AND 連續 2 天綠棒縮短 ($0 > \\text{{OSC}}[t] > \\text{{OSC}}[t-1] > \\text{{OSC}}[t-2]$) "
-                f"AND 每日成交額前 100 名個股 (純個股 1101-9999)"
+                "**v18 篩選規則**："
+                "投信過去 60 天淨買 > 0 + 綠棒面積 ≥ 50 + OSC 連續縮短 2 天 + 綠棒 ≥ 5 天 + "
+                "DIF（位置 ≤ 0.3 AND DIF/Close ≤ 1.0% **OR** 5 天斜率 < 0 AND 位置 ≤ 0.5）+ "
+                "成交額前 200 大純個股。同 ticker 取首次訊號日持續顯示，"
+                "滿 30 天或 OSC 轉紅自動消失。排序按當下 DIF+DEM 位階升冪。"
             )
 
             if not signals:
@@ -2276,9 +2276,9 @@ with tab6:
                     
                     with st.expander(
                         f"{badge}  **{s['ticker']} {s.get('name','')}**  "
-                        f"訊號日 {s['sig_date'][:4]}-{s['sig_date'][4:6]}-{s['sig_date'][6:8]}  "
-                        f"／投信半年水位 {s.get('ratio_to_max_pct', 0.0):.1f}%  "
-                        f"／OSC 綠棒 {s.get('green_days_since_first', s['green_days'])} 天  "
+                        f"首次訊號日 {s['sig_date'][:4]}-{s['sig_date'][4:6]}-{s['sig_date'][6:8]}  "
+                        f"／投信60天淨買 {s.get('recent_60d_net_lots', 0):+,} 張  "
+                        f"／OSC 綠棒至今 {s.get('green_days_since_first', s['green_days'])} 天  "
                         f"／累計漲跌 {s['float_ret_pct']:+.2f}%"
                     ):
                         # 圖表展示區
