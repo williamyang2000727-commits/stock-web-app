@@ -2289,26 +2289,38 @@ with tab6:
                         dates_short = [h["date"][5:] for h in hist_sorted]
                         
                         with c_chart1:
-                            st.markdown("📈 **MACD OSC 綠棒柱狀圖（負值縮短代表反轉準備）**")
-                            # Altair 紅綠著色與對稱 Y 軸優化 (比照券商 App 視覺)
+                            st.markdown("📈 **MACD 指標趨勢圖 (OSC 柱 + 黃色 DIF 折線)**")
+                            # Altair 雙圖層優化：OSC 柱狀圖 (紅/綠) + 黃色 DIF 折線 (完美比照券商 App 視覺)
                             import altair as alt
                             chart_osc_df = pd.DataFrame({
                                 "date": dates_short,
-                                "OSC": [h["osc"] for h in hist_sorted]
+                                "OSC": [h["osc"] for h in hist_sorted],
+                                "DIF": [h["dif"] for h in hist_sorted]
                             })
                             chart_osc_df["color"] = chart_osc_df["OSC"].apply(lambda x: "red" if x >= 0 else "green")
                             
-                            osc_vals = chart_osc_df["OSC"].values
-                            max_abs_osc = max(abs(min(osc_vals)), abs(max(osc_vals))) * 1.15 if len(osc_vals) > 0 else 1.0
+                            # 共享對稱 Y 軸範圍計算
+                            all_vals = list(chart_osc_df["OSC"].values) + list(chart_osc_df["DIF"].values)
+                            max_abs = max(abs(min(all_vals)), abs(max(all_vals))) * 1.15 if len(all_vals) > 0 else 1.0
                             
-                            chart_osc = alt.Chart(chart_osc_df).mark_bar().encode(
+                            # 1. 柱狀圖 (OSC)
+                            bars = alt.Chart(chart_osc_df).mark_bar().encode(
                                 x=alt.X("date:N", sort=None, title=None, axis=alt.Axis(labelAngle=0)),
-                                y=alt.Y("OSC:Q", scale=alt.Scale(domain=[-max_abs_osc, max_abs_osc]), title=None),
+                                y=alt.Y("OSC:Q", scale=alt.Scale(domain=[-max_abs, max_abs]), title=None),
                                 color=alt.Color("color:N", scale=alt.Scale(domain=["red", "green"], range=["#FF4B4B", "#09AB3B"]), legend=None)
-                            ).properties(
+                            )
+                            
+                            # 2. 折線圖 (DIF) - 黃色對齊三竹
+                            line = alt.Chart(chart_osc_df).mark_line(color="#FFD700", strokeWidth=2).encode(
+                                x=alt.X("date:N", sort=None),
+                                y=alt.Y("DIF:Q", scale=alt.Scale(domain=[-max_abs, max_abs]))
+                            )
+                            
+                            # 疊加雙圖層
+                            chart_combined = (bars + line).properties(
                                 height=200
                             )
-                            st.altair_chart(chart_osc, use_container_width=True)
+                            st.altair_chart(chart_combined, use_container_width=True)
                             
                         with c_chart2:
                             st.markdown("🏦 **投信累積持股趨勢 (張)**")
