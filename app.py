@@ -2290,10 +2290,25 @@ with tab6:
                         
                         with c_chart1:
                             st.markdown("📈 **MACD OSC 綠棒柱狀圖（負值縮短代表反轉準備）**")
+                            # Altair 紅綠著色與對稱 Y 軸優化 (比照券商 App 視覺)
+                            import altair as alt
                             chart_osc_df = pd.DataFrame({
+                                "date": dates_short,
                                 "OSC": [h["osc"] for h in hist_sorted]
-                            }, index=dates_short)
-                            st.bar_chart(chart_osc_df, use_container_width=True)
+                            })
+                            chart_osc_df["color"] = chart_osc_df["OSC"].apply(lambda x: "red" if x >= 0 else "green")
+                            
+                            osc_vals = chart_osc_df["OSC"].values
+                            max_abs_osc = max(abs(min(osc_vals)), abs(max(osc_vals))) * 1.15 if len(osc_vals) > 0 else 1.0
+                            
+                            chart_osc = alt.Chart(chart_osc_df).mark_bar().encode(
+                                x=alt.X("date:N", sort=None, title=None, axis=alt.Axis(labelAngle=0)),
+                                y=alt.Y("OSC:Q", scale=alt.Scale(domain=[-max_abs_osc, max_abs_osc]), title=None),
+                                color=alt.Color("color:N", scale=alt.Scale(domain=["red", "green"], range=["#FF4B4B", "#09AB3B"]), legend=None)
+                            ).properties(
+                                height=200
+                            )
+                            st.altair_chart(chart_osc, use_container_width=True)
                             
                         with c_chart2:
                             st.markdown("🏦 **投信累積持股趨勢 (張)**")
