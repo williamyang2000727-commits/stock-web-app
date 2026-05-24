@@ -2323,21 +2323,30 @@ with tab6:
                             st.altair_chart(chart_combined, use_container_width=True)
                             
                         with c_chart2:
-                            st.markdown("🏦 **投信累積持股趨勢 (張)**")
+                            st.markdown("🏦 **投信每日淨買賣超 (張)**（紅買綠賣，看力道）")
+                            # Altair 紅綠柱狀圖（買=紅、賣=綠，對齊台股慣例）
                             chart_trust_df = pd.DataFrame({
-                                "投信持股(張)": [h["cum_lots"] for h in hist_sorted]
-                            }, index=dates_short)
-                            st.line_chart(chart_trust_df, use_container_width=True)
-                            
+                                "date": dates_short,
+                                "淨買賣超": [h["net_lots"] for h in hist_sorted]
+                            })
+                            chart_trust_df["color"] = chart_trust_df["淨買賣超"].apply(lambda x: "red" if x >= 0 else "green")
+                            trust_vals = chart_trust_df["淨買賣超"].values
+                            max_abs_trust = max(abs(min(trust_vals)), abs(max(trust_vals))) * 1.15 if len(trust_vals) > 0 else 100
+                            trust_bars = alt.Chart(chart_trust_df).mark_bar().encode(
+                                x=alt.X("date:N", sort=None, title=None, axis=alt.Axis(labelAngle=0)),
+                                y=alt.Y("淨買賣超:Q", scale=alt.Scale(domain=[-max_abs_trust, max_abs_trust]), title=None),
+                                color=alt.Color("color:N", scale=alt.Scale(domain=["red", "green"], range=["#FF4B4B", "#09AB3B"]), legend=None)
+                            ).properties(height=200)
+                            st.altair_chart(trust_bars, use_container_width=True)
+
                         # 逐日明細表格
-                        st.markdown("📋 **逐日投信與 MACD 指標明細表**")
+                        st.markdown("📋 **逐日投信明細表**")
                         sig_date_fmt = f"{s['sig_date'][:4]}-{s['sig_date'][4:6]}-{s['sig_date'][6:8]}"
                         hist_df = pd.DataFrame([{
-                            "日期": h["date"] + ("  ⭐ 訊號日" if h["date"] == sig_date_fmt else ""),
+                            "日期": h["date"] + ("  ⭐ 首次訊號日" if h["date"] == sig_date_fmt else ""),
                             "收盤價": f"{h['close']}",
-                            "投信單日買賣超(張)": f"{h['net_lots']:+,}" if h["net_lots"] != 0 else "0",
-                            "投信累積持股(張)": f"{h['cum_lots']:+,}",
+                            "投信單日淨買賣超(張)": f"{h['net_lots']:+,}" if h["net_lots"] != 0 else "0",
                         } for h in hist])
                         st.dataframe(hist_df, use_container_width=True, hide_index=True,
                                     height=min(400, len(hist) * 35 + 50))
-                        st.caption("⭐ = 策略發出訊號日。訊號日隔天 (D+1) 收盤價為模擬買入基準點。")
+                        st.caption("⭐ = 首次發出訊號的日期。訊號日隔天 (D+1) 收盤價為模擬買入基準點。")
