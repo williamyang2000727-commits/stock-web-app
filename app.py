@@ -2188,11 +2188,11 @@ with tab6:
         )
 
         st.warning(
-            "ℹ️ **DIF/OSC 數字跟券商 App 對不上是正常的**：\n"
-            "本系統 cache 起點 **2020-01-02**，券商 App 從股票上市日累積，"
-            "EMA 起點不同造成 DIF/OSC 絕對值會差 0.5 ~ 2.0。\n"
-            "但**訊號邏輯用的是「相對位置」**（DIF 在自己半年 0~1 位置、綠棒幾天、谷底位置、縮短中…）"
-            "等比例平移後相對位置不變，**篩股結果跟券商視角算出來會是同一批**，操作功能完全一致。"
+            "ℹ️ **數字呈現原則**：\n"
+            "- **主表不顯示 DIF/OSC 絕對數字**（EMA 起點跟券商不同永遠對不上，且對你決策無用）\n"
+            "- 顯示「**位階**」(0~1) 給你看「DIF 跌得夠不夠深」— 0=半年最低、1=半年最高\n"
+            "- 個股展開區的 **MACD 趨勢圖**保留供視覺檢查「綠棒形狀」，看形狀不看絕對值\n"
+            "- 篩選邏輯用相對位置，**篩股結果跟券商視角會是同一批**"
         )
 
         macd_trust_data = read_gist_file("macd_trust_screener_results.json")
@@ -2232,8 +2232,8 @@ with tab6:
                     "首次訊號日": s["sig_date"][:4] + "-" + s["sig_date"][4:6] + "-" + s["sig_date"][6:8],
                     "出現幾天": f"{s.get('calendar_days_since_first', s.get('days_held', 0))} 天",
                     "綠棒至今": f"{s.get('green_days_since_first', s['green_days'])} 天",
-                    "DIF": f"{s.get('today_dif', s['dif']):.2f}",
-                    "OSC": f"{s.get('today_osc', s['osc']):.2f}",
+                    "DIF位階": f"{s.get('today_dif_position', s.get('dif_position', 0)):.2f}",
+                    "DEM位階": f"{s.get('today_dem_position', s.get('dem_position', 0)):.2f}",
                     "投信60天": f"{s.get('recent_60d_net_lots', 0):+,} 張",
                     "首次後投信": f"{s.get('trust_after_first_lots', 0):+,} 張",
                     "昨日投信": f"{s.get('latest_trust_net_lots', 0):+,} 張",
@@ -2289,7 +2289,7 @@ with tab6:
                         dates_short = [h["date"][5:] for h in hist_sorted]
                         
                         with c_chart1:
-                            st.markdown("📈 **MACD 指標趨勢圖 (OSC 柱 + 黃色 DIF 折線)**")
+                            st.markdown("📈 **MACD 趨勢圖**（看形狀：綠棒大不大、有沒有縮短中）")
                             # Altair 雙圖層優化：OSC 柱狀圖 (紅/綠) + 黃色 DIF 折線 (完美比照券商 App 視覺)
                             import altair as alt
                             chart_osc_df = pd.DataFrame({
@@ -2335,8 +2335,6 @@ with tab6:
                         hist_df = pd.DataFrame([{
                             "日期": h["date"] + ("  ⭐ 訊號日" if h["date"] == sig_date_fmt else ""),
                             "收盤價": f"{h['close']}",
-                            "DIF": f"{h['dif']:.3f}",
-                            "OSC": f"{h['osc']:.3f}",
                             "投信單日買賣超(張)": f"{h['net_lots']:+,}" if h["net_lots"] != 0 else "0",
                             "投信累積持股(張)": f"{h['cum_lots']:+,}",
                         } for h in hist])
