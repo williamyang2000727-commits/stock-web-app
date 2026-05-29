@@ -708,8 +708,8 @@ with tab0:
         st.subheader("📅 近 10 天推薦追蹤 — 模擬如果真的買了會賺幾%")
         st.caption(
             "每天 16:35 主 pipeline 跑完後，**Tab 1 第一名**自動寫入此追蹤表。"
-            "**套 94.39 短波段完整賣出規則**（停損/停利/移動停利/hold=10）模擬「真的買了會賺幾%」。"
-            "每列點開看推薦日 D 到賣出/今天的**逐日漲跌 + 累計 P&L**。"
+            "**全部當「真的買了」模擬**：D+1 開盤買 → 套短波段 SEED 賣出規則（hold=10 / 停損 / 停利 / 移動停利 / 鎖利）跑到觸發 or 今天。"
+            "不考慮 max_positions 限制 — 純粹回答「如果我真的買了那檔，結果會怎樣」。"
         )
 
         rec_data = read_gist_file("recommendation_history.json")
@@ -740,13 +740,13 @@ with tab0:
                         "holding": "📌 模擬持有",
                         "no_data": "❓ 無資料",
                     }.get(status, "")
-                    # 模擬 P&L 顯示
+                    # 模擬 P&L 顯示（全部當有進場模擬）
                     if ts == "closed" and sim_ret is not None:
                         sim_pl = f"{sim_ret:+.2f}% ({sim_reason})"
                     elif ts == "holding" and fp is not None:
                         sim_pl = f"持有中 {fp:+.2f}%"
-                    elif ts == "not_entered":
-                        sim_pl = f"未進場 (純浮動 {fp:+.2f}%)" if fp is not None else "未進場"
+                    elif ts == "pending_d1":
+                        sim_pl = "📅 等 D+1（明天開盤買）"
                     else:
                         sim_pl = "—"
                     rec_rows.append({
@@ -762,25 +762,25 @@ with tab0:
                     })
                 st.dataframe(pd.DataFrame(rec_rows), use_container_width=True, hide_index=True)
 
-                # 摘要統計：分「已平倉」(套完整賣出規則) vs「持有中/未進場」
+                # 摘要統計：所有「能算 P&L」的（已平倉 + 持有中）一起算「模擬總績效」
                 closed = [r for r in rec_records if r.get("trade_status") == "closed" and r.get("sim_return_pct") is not None]
                 holding = [r for r in rec_records if r.get("trade_status") == "holding" and r.get("float_ret_pct") is not None]
-
-                if closed:
-                    wins = sum(1 for r in closed if r["sim_return_pct"] > 0)
-                    losses = sum(1 for r in closed if r["sim_return_pct"] < 0)
-                    avg = sum(r["sim_return_pct"] for r in closed) / len(closed)
-                    win_rate = wins / len(closed) * 100
-                    total = sum(r["sim_return_pct"] for r in closed)
+                all_with_pl = [(r.get("sim_return_pct") if r.get("trade_status") == "closed" else r.get("float_ret_pct"))
+                                for r in rec_records
+                                if r.get("trade_status") in ("closed", "holding")
+                                and (r.get("sim_return_pct") is not None or r.get("float_ret_pct") is not None)]
+                if all_with_pl:
+                    wins = sum(1 for v in all_with_pl if v > 0)
+                    losses = sum(1 for v in all_with_pl if v < 0)
+                    avg = sum(all_with_pl) / len(all_with_pl)
+                    win_rate = wins / len(all_with_pl) * 100
+                    total = sum(all_with_pl)
                     c1, c2, c3, c4 = st.columns(4)
-                    c1.metric("已平倉樣本", f"{len(closed)} 檔")
+                    c1.metric("有效樣本", f"{len(all_with_pl)} 檔", f"已平倉 {len(closed)} / 持有中 {len(holding)}")
                     c2.metric("勝率", f"{win_rate:.0f}%", f"{wins} 賺 / {losses} 虧")
                     c3.metric("平均報酬", f"{avg:+.2f}%")
                     c4.metric("累計報酬", f"{total:+.2f}%")
-                    st.caption(f"✅ 套 94.39 完整賣出規則（已平倉 {len(closed)} 筆）／⚠️ 樣本 N={len(closed)} 小不具統計顯著性")
-                if holding:
-                    avg_h = sum(r["float_ret_pct"] for r in holding) / len(holding)
-                    st.caption(f"📌 模擬持有中：{len(holding)} 檔（平均浮動 {avg_h:+.2f}%，未到賣出條件）")
+                    st.caption(f"✅ D+1 開盤買 + 套短波段 SEED 賣出規則 ／ ⚠️ N={len(all_with_pl)} 小不具統計顯著性，僅供觀察")
 
                 # 個股逐日 expander
                 st.markdown("---")
@@ -805,8 +805,8 @@ with tab0:
                         pl_str = f"已賣 {sim_ret:+.2f}% ({sim_reason} @ {sim_sell_date})"
                     elif ts == "holding" and fp is not None:
                         pl_str = f"持有中 {fp:+.2f}%"
-                    elif ts == "not_entered":
-                        pl_str = f"未進場（純浮動 {fp:+.2f}%）" if fp is not None else "未進場"
+                    elif ts == "pending_d1":
+                        pl_str = "等 D+1 進場"
                     else:
                         pl_str = "—"
                     with st.expander(
