@@ -698,6 +698,120 @@ with tab0:
         if scan_date:
             st.caption(f"資料日期：{scan_date}")
 
+    # ──────────────────────────────────────────────────────────
+    # 📅 近 10 天推薦追蹤（只短波段顯示）
+    # 仿 Tab 5 投信突襲 expander 風格，點開看每日逐日漲跌 + 累計浮動%
+    # 資料來源：recommendation_history.json（Tab 1 每天第一名）
+    # ──────────────────────────────────────────────────────────
+    if _IS_SHORT:
+        st.markdown("---")
+        st.subheader("📅 近 10 天推薦追蹤")
+        st.caption(
+            "每天 16:35 主 pipeline 跑完後，**Tab 1 第一名**自動寫入此追蹤表。"
+            "績效用 **D+1 13:25 買價**算（對齊主策略 SOP）。"
+            "每列點開看推薦日 D 到今天的**逐日漲跌 + 累計浮動報酬**。"
+        )
+
+        rec_data = read_gist_file("recommendation_history.json")
+        if not rec_data:
+            st.info("尚無推薦追蹤資料（首次跑 pipeline 後出現）")
+        else:
+            rec_records = rec_data.get("records", [])
+            if not rec_records:
+                st.info("尚無推薦紀錄")
+            else:
+                # 摘要表
+                rec_rows = []
+                for r in rec_records:
+                    sd = r.get("sig_date", "")
+                    sd_fmt = f"{sd[:4]}-{sd[4:6]}-{sd[6:8]}" if len(sd) == 8 else sd
+                    fp = r.get("float_ret_pct")
+                    days_held = r.get("days_held", 0)
+                    status = r.get("status", "")
+                    badge = {
+                        "win": "🟢 漲",
+                        "loss": "🔴 跌",
+                        "even": "⚪ 持平",
+                        "waiting": "⏳ 待觀察",
+                        "pending_d1": "📅 等 D+1",
+                        "no_data": "❓ 無資料",
+                    }.get(status, "")
+                    rec_rows.append({
+                        "推薦日": sd_fmt,
+                        "股號": r.get("ticker", ""),
+                        "公司": r.get("name", ""),
+                        "分數": r.get("score", ""),
+                        "D+1 買價": f"{r['buy_price']:.2f}" if r.get("buy_price") else "—",
+                        "目前價": f"{r['current_price']:.2f}" if r.get("current_price") else "—",
+                        "持有天": days_held,
+                        "浮動%": f"{fp:+.2f}%" if fp is not None else "—",
+                        "狀態": badge,
+                    })
+                st.dataframe(pd.DataFrame(rec_rows), use_container_width=True, hide_index=True)
+
+                # 摘要統計
+                with_fp = [r for r in rec_records if r.get("float_ret_pct") is not None and r.get("days_held", 0) >= 1]
+                if with_fp:
+                    wins = sum(1 for r in with_fp if r["float_ret_pct"] > 0)
+                    losses = sum(1 for r in with_fp if r["float_ret_pct"] < 0)
+                    avg = sum(r["float_ret_pct"] for r in with_fp) / len(with_fp)
+                    win_rate = wins / len(with_fp) * 100
+                    c1, c2, c3 = st.columns(3)
+                    c1.metric("有效樣本", f"{len(with_fp)} 檔")
+                    c2.metric("漲比", f"{win_rate:.0f}%", f"{wins} 漲 / {losses} 跌")
+                    c3.metric("平均浮動%", f"{avg:+.2f}%")
+                    st.caption(f"⚠️ 樣本 N={len(with_fp)} 小不具統計顯著性，僅供觀察")
+
+                # 個股逐日 expander
+                st.markdown("---")
+                st.markdown("### 🔍 個股逐日表（推薦日 D → 今天）")
+                for r in rec_records:
+                    daily = r.get("daily_history", [])
+                    if not daily:
+                        continue
+                    sd = r.get("sig_date", "")
+                    sd_fmt = f"{sd[:4]}-{sd[4:6]}-{sd[6:8]}" if len(sd) == 8 else sd
+                    fp = r.get("float_ret_pct")
+                    fp_str = f"{fp:+.2f}%" if fp is not None else "—"
+                    status = r.get("status", "")
+                    icon = {"win": "🟢", "loss": "🔴", "even": "⚪", "waiting": "⏳", "pending_d1": "📅"}.get(status, "📌")
+                    bp = r.get("buy_price")
+                    bp_str = f"D+1 買 {bp:.2f}" if bp else "等 D+1 進場"
+                    with st.expander(
+                        f"{icon}  **{r['ticker']} {r.get('name','')}**  "
+                        f"推薦 {sd_fmt}  ／{bp_str}  "
+                        f"／浮動 {fp_str}"
+                    ):
+                        rows = []
+                        for d in daily:
+                            tag = ""
+                            if d.get("is_sig_day"):
+                                tag = "  ⭐ 推薦日 D"
+                            elif d.get("is_buy_day"):
+                                tag = "  🎯 D+1 買入"
+                            chg = d.get("day_chg_pct")
+                            cum = d.get("cum_float_pct")
+                            rows.append({
+                                "日期": d["date"] + tag,
+                                "開": d["open"],
+                                "高": d["high"],
+                                "低": d["low"],
+                                "收": d["close"],
+                                "當日漲跌%": f"{chg:+.2f}%" if chg is not None else "—",
+                                "累計浮動%": f"{cum:+.2f}%" if cum is not None else "—",
+                            })
+                        hist_df = pd.DataFrame(rows)
+                        st.dataframe(hist_df, use_container_width=True, hide_index=True,
+                                     height=min(500, len(rows) * 35 + 50))
+                        st.caption(
+                            f"⭐ = 推薦日 D（{sd_fmt} 收盤後選出）／🎯 = D+1 實際買入／"
+                            f"累計浮動% 以 D+1 買價 {bp:.2f} 為基準" if bp else "累計浮動%以 D+1 買價為基準（尚未進場）"
+                        )
+
+                if rec_data.get("backfilled_at"):
+                    st.caption(f"📦 含回填資料（從 cpu_replay trades 回推，{rec_data['backfilled_at']}）")
+                st.caption(f"資料更新：{rec_data.get('updated', '—')}")
+
 # ══════════════════════════════════════════════════════════════
 # TAB 1: BUY RANKINGS
 # ══════════════════════════════════════════════════════════════
