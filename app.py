@@ -592,20 +592,23 @@ elif _pipeline_ran_today:
 # 因為篩選器用主 Data Gist 的 screener_results.json + golden_optimal_hold.json
 # 短波段 Data Gist 沒這兩個檔，顯示會錯亂
 if _IS_SHORT:
-    # 短波段：6 個 Tab，無 Tab 4 篩選器，多 Tab 5 投信突襲，Tab 6 MACD+投信
-    tab0, tab1, tab2, tab3, tab5, tab6 = st.tabs([signal_label, "📊 買入排行", "💼 持倉管理", "📋 回測績效", "🏦 投信突襲", "🔮 MACD+投信"])
+    # 短波段：7 個 Tab，無 Tab 4 篩選器，多 Tab 5 投信突襲，Tab 6 MACD+投信，Tab 7 大戶佔比
+    tab0, tab1, tab2, tab3, tab5, tab6, tab7 = st.tabs([signal_label, "📊 買入排行", "💼 持倉管理", "📋 回測績效", "🏦 投信突襲", "🔮 MACD+投信", "🐳 大戶佔比"])
     tab4 = st.container()
     _tab4_active = False
     _tab5_active = True
     _tab6_active = True
+    _tab7_active = True
 else:
-    # 主策略：5 個 Tab，有 Tab 4 篩選器，無 Tab 5/6
+    # 主策略：5 個 Tab，有 Tab 4 篩選器，無 Tab 5/6/7
     tab0, tab1, tab2, tab3, tab4 = st.tabs([signal_label, "📊 買入排行", "💼 持倉管理", "📋 回測績效", "🔍 篩選器"])
     _tab4_active = True
     tab5 = st.container()
     tab6 = st.container()
+    tab7 = st.container()
     _tab5_active = False
     _tab6_active = False
+    _tab7_active = False
 
 # ══════════════════════════════════════════════════════════════
 # TAB 0: SIGNALS
@@ -2500,3 +2503,115 @@ with tab6:
                         st.dataframe(hist_df, use_container_width=True, hide_index=True,
                                     height=min(400, len(hist) * 35 + 50))
                         st.caption("⭐ = 首次發出訊號的日期。訊號日隔天 (D+1) 收盤價為模擬買入基準點。")
+
+
+# ══════════════════════════════════════════════════════════════
+# TAB 7: 大戶佔比創半年新高 + 投信半年買超（只短波段 Web 顯示）
+# 大戶 = 持股 ≥ 400 張（TDCC 集保分散表 level 12-15 佔比加總），每週五更新
+# ══════════════════════════════════════════════════════════════
+with tab7:
+    if _tab7_active:
+        st.subheader("🐳 大戶佔比創半年新高 + 投信半年買超")
+        st.caption(
+            "大戶 = 持股 ≥ 400 張的股東佔集保庫存比例（TDCC 集保戶股權分散表，每週五更新）。"
+            "篩選：本週大戶佔比 = 過去半年（26 週）最大值（創新高） AND 該股過去 120 交易日投信淨買累計 > 0。"
+        )
+
+        st.info(
+            "🕕 **每週五盤後更新**（大戶佔比是 TDCC 週資料）。"
+            "資料源：TDCC 官方集保戶股權分散表（免費），股池為成交額前 500 大純個股。"
+        )
+        st.warning(
+            "ℹ️ **這是研究工具不是策略**。大戶佔比是慢訊號（每週才更新一次），"
+            "請自行配合其他指標判斷進場。"
+        )
+
+        bh_data = read_gist_file("big_holder_screener_results.json")
+        if not bh_data:
+            st.info(
+                "還沒有資料 — 等 Windows 跑完 `python fetch_big_holder.py --history`（首次補半年歷史）"
+                "+ `python screener_big_holder.py` 後會自動更新。"
+            )
+        else:
+            import pandas as pd
+            updated = bh_data.get("updated", "?")
+            latest_week = bh_data.get("latest_week", "?")
+            n_signals = bh_data.get("n_signals", 0)
+            signals = bh_data.get("signals", [])
+            accumulating = bh_data.get("accumulating", False)
+            weeks_avail = bh_data.get("weeks_available", 0)
+            weeks_req = bh_data.get("weeks_required", 26)
+
+            c1, c2, c3, c4 = st.columns(4)
+            c1.metric("訊號股總數", f"{n_signals} 個")
+            c2.metric("最新資料週", latest_week)
+            c3.metric("更新時間", updated[:16] if updated != "?" else "?")
+            c4.metric("已累積週數", f"{weeks_avail} / {weeks_req} 週")
+
+            # 累積中提示（歷史不足 26 週時）
+            if accumulating:
+                st.warning(
+                    f"📊 **歷史累積中（{weeks_avail}/{weeks_req} 週）**："
+                    f"目前「新高」= 已累積 {weeks_avail} 週內的最大值，"
+                    f"等累積滿 {weeks_req} 週才是真正的「半年新高」。每週五自動往上累積。"
+                )
+
+            if not signals:
+                st.info("本週沒有符合「大戶佔比創新高 + 投信半年買超」的個股")
+            else:
+                # 概覽表
+                st.markdown("### 📋 訊號股清單（點下方展開看大戶佔比逐週走勢）")
+                df = pd.DataFrame([{
+                    "股號": s["ticker"],
+                    "公司": s.get("name", s["ticker"]),
+                    "本週大戶佔比": f"{s['this_week_pct']:.2f}%",
+                    "前期最高": (f"{s['prev_max_pct']:.2f}%" if s.get("prev_max_pct") is not None else "—"),
+                    "創新高幅度": (
+                        f"+{s['this_week_pct'] - s['prev_max_pct']:.2f}%"
+                        if s.get("prev_max_pct") is not None else "—"
+                    ),
+                    "觀察週數": f"{s['weeks_observed']} 週",
+                    "投信半年淨買": f"{s['trust_net_lots_halfyear']:+,} 張",
+                    "目前價": (f"{s['current_price']}" if s.get("current_price") is not None else "—"),
+                } for s in signals])
+                st.dataframe(df, use_container_width=True, hide_index=True,
+                            height=min(600, len(signals) * 38 + 60))
+
+                st.caption(
+                    f"📊 共 {n_signals} 檔同時滿足「大戶佔比創{'近期' if accumulating else '半年'}新高」"
+                    f"+「投信過去 120 交易日淨買 > 0」。排序：大戶佔比高 → 低。"
+                )
+
+                # 詳細：每股展開大戶佔比逐週走勢
+                st.markdown("---")
+                st.markdown("### 🔍 個股大戶佔比逐週走勢")
+                for s in signals:
+                    trend = s.get("big_holder_trend", [])
+                    if not trend:
+                        continue
+                    with st.expander(
+                        f"🐳  **{s['ticker']} {s.get('name','')}**  "
+                        f"本週大戶 {s['this_week_pct']:.2f}%  "
+                        f"／投信半年淨買 {s['trust_net_lots_halfyear']:+,} 張"
+                    ):
+                        trend_df = pd.DataFrame([{
+                            "週": t["week"],
+                            "大戶佔比(%)": f"{t['pct']:.2f}",
+                        } for t in trend])
+                        st.dataframe(trend_df, use_container_width=False, hide_index=True,
+                                    height=min(500, len(trend) * 35 + 50))
+                        # 走勢折線圖
+                        try:
+                            import altair as alt
+                            chart_df = pd.DataFrame({
+                                "週": [t["week"][5:] for t in trend],
+                                "大戶佔比": [t["pct"] for t in trend],
+                            })
+                            line = alt.Chart(chart_df).mark_line(point=True, color="#1f77b4").encode(
+                                x=alt.X("週:N", sort=None, axis=alt.Axis(labelAngle=-45)),
+                                y=alt.Y("大戶佔比:Q", scale=alt.Scale(zero=False), title="大戶佔比 %"),
+                            ).properties(height=220)
+                            st.altair_chart(line, use_container_width=True)
+                        except Exception:
+                            pass
+                        st.caption("大戶 = 持股 ≥ 400 張（TDCC level 12-15）／本週為走勢最高點＝創新高")
