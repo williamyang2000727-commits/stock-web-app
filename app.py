@@ -1318,7 +1318,8 @@ with tab3:
             _by_cal = _cal_has_future and (_today_real not in _cal_list)
             # (C) pipeline 證據：pipeline 跑完但寫的還是舊日期
             _scan_d_check = date.fromisoformat(_d_date) if _d_date else None
-            _by_pipeline = bool(_pipeline_ran_today) and bool(_scan_d_check) and (_scan_d_check < _today_real)
+            _is_after_pipeline_time = tw_now().hour >= 17 or (tw_now().hour == 16 and tw_now().minute >= 30)
+            _by_pipeline = bool(_pipeline_ran_today) and _is_after_pipeline_time and bool(_scan_d_check) and (_scan_d_check < _today_real)
             _today_is_holiday = _is_weekend or _by_cal or _by_pipeline
         except Exception:
             _today_is_holiday = False
